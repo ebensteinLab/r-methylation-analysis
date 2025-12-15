@@ -1,10 +1,4 @@
 # r-methylation-analysis
 R analysis pipeline of methylation data
 
-Run the following commands in R studio:
-- install.packages("BiocManager")
-- BiocManager::install("GEOquery")
-- BiocManager::install(c("rtracklayer", "biomaRt"))
-- BiocManager::install("GenomicFeatures")
-- BiocManager::install("sva")
-- BiocManager::install(c("minfi","IlluminaHumanMethylationEPICanno.ilm10b4.hg19"))
+Run in R studio the scripts in the "scripts" directory according to their numbers
