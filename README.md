@@ -1,11 +1,15 @@
 # r-methylation-analysis
 R analysis pipeline of methylation data
 
-Before openning RStudio, create file ~/.Rprofile, and paste the following lines in it:
+Before openning RStudio, create file \~/.Rprofile, and paste the following lines in it:
+
+<pre>
 Sys.setenv(
-  EXPERIMENT_HUB_CACHE = path.expand("~/.cache/sesameData"),
+  EXPERIMENT_HUB_CACHE = path.expand("~/.cache/sesameData"), 
   SESAMEDATA_CACHE = path.expand("~/.cache/sesameData")
 )
+</pre>
+
 If you already opened RStudio before adding the above lines to the file, you
 need to close RStudio, add the lines to the file and open RStudio again.
 
