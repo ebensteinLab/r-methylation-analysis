@@ -108,23 +108,6 @@ try({
 # Step 2: Verify whether guessPlatform exists; if not → install from GitHub
 # -----------------------------
 library(sesame)
-has_guess <- "guessPlatform" %in% ls("package:sesame")
-
-if (!has_guess) {
-  message("Bioconductor SeSAMe install incomplete; installing latest version from GitHub...")
-  
-  remove_old_sesame()
-  
-  remotes::install_github("zwdzwd/sesame", force = TRUE)
-  remotes::install_github("zwdzwd/sesameData", force = TRUE)
-  
-  library(sesame)
-  if (!("guessPlatform" %in% ls("package:sesame"))) {
-    stop("FATAL: guessPlatform() still missing after GitHub install. Installation failed.")
-  }
-}
-
-message("SeSAMe installation OK (guessPlatform found).")
 
 # -----------------------------
 # Avoid interactive ExperimentHub/AnnotationHub prompts
@@ -133,7 +116,8 @@ options(ExperimentHub.ask = FALSE)
 options(AnnotationHub.ask = FALSE)
 
 # Pre-create cache directories
-eh <- "~/.cache/R/ExperimentHub"
+eh <- Sys.getenv("EXPERIMENT_HUB_CACHE", unset = "~/.cache/R/ExperimentHub")
+eh <- path.expand(eh)
 ah <- "~/.cache/R/AnnotationHub"
 dir.create(eh, recursive = TRUE, showWarnings = FALSE)
 dir.create(ah, recursive = TRUE, showWarnings = FALSE)
@@ -147,6 +131,8 @@ optional_bioc <- c(
 )
 
 install_bioc_if_missing(optional_bioc)
+
+sesameDataCacheAll()
 
 # -----------------------------
 # Project directory structure
