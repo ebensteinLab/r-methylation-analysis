@@ -95,6 +95,13 @@ bioc_pkgs <- c(
 
 install_bioc_if_missing(bioc_pkgs)
 
+plot_pkgs <- c(
+  "pheatmap",
+  "ggrotify"
+)
+
+install_bioc_if_missing(plot_pkgs)
+
 # -----------------------------
 # Step 1: Try installing official Bioconductor SeSAMe
 # -----------------------------
@@ -104,10 +111,24 @@ try({
   BiocManager::install("sesameData", ask = FALSE, update = TRUE)
 }, silent = TRUE)
 
-# -----------------------------
-# Step 2: Verify whether guessPlatform exists; if not → install from GitHub
-# -----------------------------
+
 library(sesame)
+
+# -----------------------------------------------------------
+# Install IDOL if needed
+# -----------------------------------------------------------
+if (!requireNamespace("remotes", quietly = TRUE)) {
+  install.packages("remotes", repos = "https://cloud.r-project.org")
+}
+remotes::install_github("immunomethylomics/IDOL")
+
+BiocManager::install(c(
+  "EpiDISH",
+  "IlluminaHumanMethylationEPICmanifest",
+  "IlluminaHumanMethylationEPICanno.ilm10b4.hg19",
+  "GenomicRanges",
+  "DMRcate"
+))
 
 # -----------------------------
 # Avoid interactive ExperimentHub/AnnotationHub prompts

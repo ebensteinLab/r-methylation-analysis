@@ -1,32 +1,12 @@
-# -----------------------------------------------------------
-# Install IDOL if needed
-# -----------------------------------------------------------
-if (!requireNamespace("remotes", quietly = TRUE)) {
-  install.packages("remotes", repos = "https://cloud.r-project.org")
-}
-remotes::install_github("immunomethylomics/IDOL")
-
-BiocManager::install(c(
-  "EpiDISH",
-  "IlluminaHumanMethylationEPICmanifest",
-  "IlluminaHumanMethylationEPICanno.ilm10b4.hg19",
-  "limma",
-  "GenomicRanges",
-  "DMRcate"
-))
 
 library(ExperimentHub)
 library(minfi)
 library(limma)
 library(IDOL)
-library(sesame)
 library(sesameData)
-library(DMRcate)
 library(rtracklayer)
 library(GenomicRanges)
 library(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
-
-set.seed(1)
 
 sesameDataCache()
 
@@ -44,15 +24,23 @@ celltypes <- factor(pData(ref_mset)$CellType)
 message("Reference samples: ", length(celltypes))
 message("Cell types: ", paste(levels(celltypes), collapse = ", "))
 
+ref_beta_centroids <- sapply(levels(celltypes), function(ct) {
+  rowMeans(ref_beta[, celltypes == ct, drop = FALSE], na.rm = TRUE)
+})
+ref_beta_centroids <- as.matrix(ref_beta_centroids)
+
+saveRDS(ref_beta_centroids, "results/processed/ref_beta_epic_centroids.rds")
+rm(ref_beta_centroids)
+
 # ------------------------------------------------------------
 # Load SeSAMe bulk M-values
 # ------------------------------------------------------------
 mval_bulk <- readRDS("results/processed/mval_matrix_sesame_batch_corrected.rds")
+targets <- readRDS("results/processed/targets_with_sesame.rds")
 
 # ------------------------------------------------------------
 # Harmonize SeSAMe and EPIC probe IDs
 # ------------------------------------------------------------
-sesameDataCache()
 
 # Map EPICv2 probe IDs -> EPIC v1 probe IDs
 addr <- sesameDataGet("EPICv2.address")
@@ -67,6 +55,8 @@ epic_gr <- GRanges(
   strand   = "*",
   probe    = rownames(epic_anno)
 )
+
+rm(epic_anno, addr)
 
 chain <- import.chain("hg19ToHg38.over.chain")
 
@@ -94,11 +84,16 @@ epicv2_ids <- names(epicv2_gr)[subjectHits(hits)]
 # EPIC probe IDs (from names we set)
 epic_ids_mapped <- names(epic_gr_hg38)[queryHits(hits)]
 
+rm(hits, epic_gr_hg38, epic_gr_hg38_list, one_map, chain)
+
 # Build lookup: EPICv2 -> EPIC
 # If multiple EPIC map to same EPICv2, keep the first (you can change policy)
 epicv2_to_epic <- epic_ids_mapped
 names(epicv2_to_epic) <- epicv2_ids
 epicv2_to_epic <- epicv2_to_epic[!duplicated(names(epicv2_to_epic))]
+saveRDS(epicv2_to_epic, "results/processed/epicv2_to_epic_map.rds")
+
+rm(epicv2_gr, epic_ids_mapped)
 
 message("Mapped EPICv2 IDs: ", length(epicv2_to_epic))
 
@@ -125,9 +120,16 @@ common <- intersect(common, epic_ids)
 message("Shared CpGs: ", length(common))
 stopifnot(length(common) > 300000)
 
-ref_mval <- ref_mval[common, ]
+rm(epic_gr, epic_ids, epicv2_to_epic, old_ids, new_ids)
+
 ref_beta <- ref_beta[common, ]
-mval_bulk <- mval_bulk[common, ]
+
+saveRDS(ref_beta, "results/processed/ref_beta_epic.rds")
+
+rm(common)
+
+gc()
+
 
 # ------------------------------------------------------------
 # Build candidate DMR finder (IDOL internal)
@@ -163,7 +165,7 @@ candFinder$coefEsts <- coef_collapsed
 message(" ", colnames(candFinder$coefEsts))
 
 # ------------------------------------------------------------
-# Run IDOL optimization
+# IDOL optimization
 # ------------------------------------------------------------
 
 idol_classes <- colnames(candFinder$coefEsts)
@@ -194,4 +196,4 @@ message("IDOL selected CpGs: ", length(idol_probes))
 # Save
 # ------------------------------------------------------------
 saveRDS(idol_probes, "results/processed/idol_cpgs.rds")
-saveRDS(idol_res,    "results/processed/idol_model.rds")
+saveRDS(idol_res, "results/processed/idol_model.rds")

@@ -10,7 +10,7 @@ suppressPackageStartupMessages({
 
 message("Loading SeSAMe-processed data...")
 
-mval <- readRDS("results/processed/mval_matrix_sesame_scaled.rds")
+mval <- readRDS("results/processed/mval_matrix_raw_sesame.rds")
 targets <- readRDS("results/processed/targets_with_sesame.rds")
 
 # ------------------------------------------------
@@ -24,15 +24,10 @@ if (!all(colnames(mval) %in% targets$sample_name)) {
 targets <- targets[match(colnames(mval), targets$sample_name), ]
 
 # ------------------------------------------------
-# Define batch variable
+# Define batch variable: targets$Sentrix_Id
 # ------------------------------------------------
-# Example batch variables:
-#   targets$Batch
-#   targets$Sentrix_Id
-#   targets$RunDate
-#   targets$Study
 
-batch <- as.factor(targets$Batch)
+batch <- as.factor(targets$Sentrix_Id)
 
 if (anyNA(batch)) {
   stop("Batch variable contains NA values.")
@@ -40,20 +35,13 @@ if (anyNA(batch)) {
 
 message("Batch levels: ", paste(levels(batch), collapse = ", "))
 
-# ------------------------------------------------
-# OPTIONAL: model biological covariates
-# ------------------------------------------------
-# Example:
-# mod <- model.matrix(~ Disease + Age + Sex, data = targets)
-
+keep <- rowSums(!is.na(mval)) == length(batch)
+mval <- mval[keep, ]
 mod <- model.matrix(~ 1, data = targets)  # no biological covariates
 
 # ------------------------------------------------
 # Run ComBat
 # ------------------------------------------------
-
-batch <- as.factor(targets$Batch)
-
 if (nlevels(batch) < 2) {
   warning("Only one batch detected; skipping ComBat.")
   mval_corrected <- mval
@@ -74,17 +62,18 @@ if (nlevels(batch) < 2) {
 # Save output
 # ------------------------------------------------
 
+mask <- readRDS("results/processed/final_probe_mask.rds")
+mval_corrected[!mask, ] <- NA
+
 saveRDS(
-  mval_corrected,
-  "results/processed/mval_matrix_sesame_batch_corrected.rds"
+  mval_corrected, "results/processed/mval_matrix_sesame_batch_corrected.rds"
 )
 
 # Convert corrected M-values back to betas
 beta_corrected <- MValueToBetaValue(mval_corrected)
 
 saveRDS(
-  beta_corrected,
-  "results/processed/beta_matrix_sesame_batch_corrected.rds"
+  beta_corrected, "results/processed/beta_matrix_sesame_batch_corrected.rds"
 )
 
 if (combat_ran) {
