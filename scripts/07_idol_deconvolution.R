@@ -1,5 +1,9 @@
 #!/usr/bin/env Rscript
 
+if (!endsWith(getwd(), "R/projects/r-methylation-analysis")) {
+  setwd("R/projects/r-methylation-analysis")
+}
+
 suppressPackageStartupMessages({
   library(EpiDISH)
 })
@@ -10,7 +14,7 @@ message("Loading inputs...")
 # Load data
 # ------------------------------------------------
 beta <- readRDS("results/processed/beta_matrix_sesame_batch_corrected.rds")
-targets <- readRDS("results/processed/targets_with_sesame.rds")
+targets <- readRDS("results/processed/targets_merged.rds")
 epicv2_to_epic <- readRDS("results/processed/epicv2_to_epic_map.rds")
 idol_probes <- readRDS("results/processed/idol_cpgs_plasma.rds")
 

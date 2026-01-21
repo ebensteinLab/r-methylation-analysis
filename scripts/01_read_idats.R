@@ -1,17 +1,56 @@
 #!/usr/bin/env Rscript
 
+if (!endsWith(getwd(), "R/projects/r-methylation-analysis")) {
+  setwd("R/projects/r-methylation-analysis")
+}
+
 library(tidyverse)
 
 # -----------------------------
 # Directories containing sample sheets
 # -----------------------------
-dirs <- c(
-  "raw_data/209547710016", 
-  "raw_data/209742170040", 
-  "raw_data/209742170042", 
-  "raw_data/209742180031", 
-  "raw_data/209742180157"
-)
+find_idat_dirs <- function(
+    base_dir = "R/projects/r-methylation-analysis/raw_data",
+    samplesheet = "samplesheet.csv",
+    recursive = FALSE
+) {
+  # List candidate directories
+  dirs <- list.dirs(base_dir, recursive = recursive, full.names = TRUE)
+  dirs <- dirs[dirs != base_dir]
+  
+  valid_dirs <- character()
+  
+  for (d in dirs) {
+    idats <- list.files(d, pattern = "\\.idat?$", ignore.case = TRUE)
+    
+    # Skip dirs without IDATs
+    if (length(idats) == 0) {
+      next
+    }
+    
+    sheet_path <- file.path(d, samplesheet)
+    
+    if (!file.exists(sheet_path)) {
+      warning(
+        sprintf(
+          "Directory '%s' contains IDAT files but is missing %s — skipping.",
+          d, samplesheet
+        ),
+        call. = FALSE
+      )
+      next
+    }
+    
+    valid_dirs <- c(valid_dirs, d)
+  }
+  
+  message("Found ", length(valid_dirs), " valid IDAT directories.")
+  return(valid_dirs)
+}
+
+dirs <- find_idat_dirs()
+
+print(dirs)
 
 # -----------------------------
 # Load and merge sample sheets

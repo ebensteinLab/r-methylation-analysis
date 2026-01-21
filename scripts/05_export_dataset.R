@@ -1,5 +1,9 @@
 #!/usr/bin/env Rscript
 
+if (!endsWith(getwd(), "R/projects/r-methylation-analysis")) {
+  setwd("R/projects/r-methylation-analysis")
+}
+
 suppressPackageStartupMessages({
   library(data.table)
 })
@@ -13,13 +17,9 @@ mval_corrected <- readRDS(
   "results/processed/mval_matrix_sesame_batch_corrected.rds"
 )
 
-beta_corrected <- readRDS(
-  "results/processed/beta_matrix_sesame_batch_corrected.rds"
-)
+beta_corrected <- readRDS("results/processed/beta_matrix_sesame_batch_corrected.rds")
 
-targets <- readRDS(
-  "results/processed/targets_with_sesame.rds"
-)
+targets <- readRDS("results/processed/targets_merged.rds")
 
 # ------------------------------------------------
 # Sanity checks
@@ -54,9 +54,9 @@ fwrite(
   "results/processed/beta_matrix_batch_corrected.csv"
 )
 
-fwrite(
-  targets,
-  "results/processed/sample_metadata.csv"
-)
+fwrite(targets, "results/processed/sample_metadata.csv")
+
+rm(beta_corrected, mval_corrected, targets)
+gc()
 
 message("Export completed successfully.")

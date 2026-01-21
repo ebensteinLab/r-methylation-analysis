@@ -4,14 +4,21 @@
 # Script 04: Batch correction using ComBat (SeSAMe pipeline)
 # ================================================================
 
+if (!endsWith(getwd(), "R/projects/r-methylation-analysis")) {
+  setwd("R/projects/r-methylation-analysis")
+}
+
 suppressPackageStartupMessages({
   library(sva)
+  library(sesame)
 })
 
 message("Loading SeSAMe-processed data...")
 
 mval <- readRDS("results/processed/mval_matrix_raw_sesame.rds")
-targets <- readRDS("results/processed/targets_with_sesame.rds")
+targets <- readRDS("results/processed/targets_merged.rds")
+
+message("Number of rows in targets: ", nrow(targets))
 
 # ------------------------------------------------
 # Ensure sample alignment
@@ -39,6 +46,9 @@ keep <- rowSums(!is.na(mval)) == length(batch)
 mval <- mval[keep, ]
 mod <- model.matrix(~ 1, data = targets)  # no biological covariates
 
+rm(targets, keep)
+gc()
+
 # ------------------------------------------------
 # Run ComBat
 # ------------------------------------------------
@@ -58,6 +68,9 @@ if (nlevels(batch) < 2) {
   combat_ran <- TRUE
 }
 
+rm(mval, mod, batch)
+gc()
+
 # ------------------------------------------------
 # Save output
 # ------------------------------------------------
@@ -65,16 +78,18 @@ if (nlevels(batch) < 2) {
 mask <- readRDS("results/processed/final_probe_mask.rds")
 mval_corrected[!mask, ] <- NA
 
-saveRDS(
-  mval_corrected, "results/processed/mval_matrix_sesame_batch_corrected.rds"
-)
+saveRDS(mval_corrected, "results/processed/mval_matrix_sesame_batch_corrected.rds")
 
 # Convert corrected M-values back to betas
 beta_corrected <- MValueToBetaValue(mval_corrected)
 
-saveRDS(
-  beta_corrected, "results/processed/beta_matrix_sesame_batch_corrected.rds"
-)
+rm(mval_corrected)
+gc()
+
+saveRDS(beta_corrected, "results/processed/beta_matrix_sesame_batch_corrected.rds")
+
+rm(beta_corrected)
+gc()
 
 if (combat_ran) {
   message("Batch correction completed successfully.")

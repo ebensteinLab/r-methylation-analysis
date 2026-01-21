@@ -1,3 +1,8 @@
+#!/usr/bin/env Rscript
+
+if (!endsWith(getwd(), "R/projects/r-methylation-analysis")) {
+  setwd("R/projects/r-methylation-analysis")
+}
 
 library(ExperimentHub)
 library(minfi)
@@ -21,6 +26,9 @@ ref_beta <- getBeta(ref_mset)
 ref_mval <- getM(ref_mset)
 celltypes <- factor(pData(ref_mset)$CellType)
 
+rm(ref_rg, ref_mset)
+gc()
+
 message("Reference samples: ", length(celltypes))
 message("Cell types: ", paste(levels(celltypes), collapse = ", "))
 
@@ -31,12 +39,13 @@ ref_beta_centroids <- as.matrix(ref_beta_centroids)
 
 saveRDS(ref_beta_centroids, "results/processed/ref_beta_epic_centroids.rds")
 rm(ref_beta_centroids)
+gc()
 
 # ------------------------------------------------------------
 # Load SeSAMe bulk M-values
 # ------------------------------------------------------------
 mval_bulk <- readRDS("results/processed/mval_matrix_sesame_batch_corrected.rds")
-targets <- readRDS("results/processed/targets_with_sesame.rds")
+targets <- readRDS("results/processed/targets_merged.rds")
 
 # ------------------------------------------------------------
 # Harmonize SeSAMe and EPIC probe IDs
@@ -178,6 +187,9 @@ rownames(trainingCovariates) <- colnames(ref_beta)
 
 stopifnot(all(colnames(trainingCovariates) == idol_classes))
 
+rm(onehot, idol_classes, celltypes)
+gc()
+
 message("Running IDOLoptimize")
 idol_res <- IDOLoptimize(
   candDMRFinderObject = candFinder,
@@ -188,6 +200,9 @@ idol_res <- IDOLoptimize(
   numCores            = 4
 )
 
+rm(candFinder, ref_beta, trainingCovariates)
+gc()
+
 idol_probes <- idol_res[[ "IDOL Optimized Library" ]]
 
 message("IDOL selected CpGs: ", length(idol_probes))
@@ -197,3 +212,6 @@ message("IDOL selected CpGs: ", length(idol_probes))
 # ------------------------------------------------------------
 saveRDS(idol_probes, "results/processed/idol_cpgs.rds")
 saveRDS(idol_res, "results/processed/idol_model.rds")
+
+rm(idol_probes, idol_res)
+gc()

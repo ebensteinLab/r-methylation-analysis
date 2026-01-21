@@ -4,12 +4,13 @@
 # Script 03: Post-processing / normalization of SeSAMe output
 # ================================================================
 
+if (!endsWith(getwd(), "R/projects/r-methylation-analysis")) {
+  setwd("R/projects/r-methylation-analysis")
+}
+
 message("Loading SeSAMe-processed matrices...")
 
-beta_matrix <- readRDS("results/processed/beta_matrix_sesame.rds")
 mval_matrix <- readRDS("results/processed/mval_matrix_sesame.rds")
-
-dir.create("results/processed", recursive = TRUE, showWarnings = FALSE)
 
 # ------------------------------------------------
 # OPTIONAL: probe-wise centering / scaling
@@ -34,14 +35,13 @@ stopifnot(!any(is.na(keep)))
 
 # Apply scaling
 mval_scaled <- t(scale(t(mval_matrix[keep, ])))
+rm(mval_matrix)
+gc()
 
 removed <- sum(!keep)
 pct <- round(100 * removed / length(keep), 2)
 
-message(
-  "Removed ", removed,
-  " low-information probes (", pct, "%)"
-)
+message("Removed ", removed, " low-information probes (", pct, "%)")
 
 # Check for numerical issues
 if (anyNA(mval_scaled)) {
@@ -51,15 +51,6 @@ if (anyNA(mval_scaled)) {
 # ------------------------------------------------
 # Save outputs
 # ------------------------------------------------
-
-saveRDS(
-  mval_scaled,
-  "results/processed/mval_matrix_sesame_scaled.rds"
-)
-
-saveRDS(
-  beta_matrix,
-  "results/processed/beta_matrix_sesame_final.rds"
-)
+saveRDS(mval_scaled, "results/processed/mval_matrix_sesame_scaled.rds")
 
 message("Script 03 completed successfully.")
