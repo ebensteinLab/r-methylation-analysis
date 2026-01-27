@@ -8,6 +8,8 @@ if (!endsWith(getwd(), "R/projects/r-methylation-analysis")) {
   setwd("R/projects/r-methylation-analysis")
 }
 
+library(matrixStats)
+
 message("Loading SeSAMe-processed matrices...")
 
 mval_matrix <- readRDS("results/processed/mval_matrix_sesame.rds")
@@ -20,10 +22,10 @@ mval_matrix <- readRDS("results/processed/mval_matrix_sesame.rds")
 message("Applying optional scaling to M-values...")
 
 # Compute SD per probe
-probe_sd <- apply(mval_matrix, 1, sd, na.rm = TRUE)
+probe_sd <- rowSds(mval_matrix, na.rm = TRUE)
 
 # Count non-NA values per probe
-probe_n <- rowSums(!is.na(mval_matrix))
+probe_n <- rowCounts(mval_matrix, value = NA, invert = TRUE)
 
 # Keep probes with:
 #  - positive variance
@@ -34,8 +36,18 @@ keep <- probe_sd > 0 & probe_n >= 2
 stopifnot(!any(is.na(keep)))
 
 # Apply scaling
-mval_scaled <- t(scale(t(mval_matrix[keep, ])))
-rm(mval_matrix)
+# Subset first
+X <- mval_matrix[keep, ]
+
+# Compute row means & SDs
+row_means <- rowMeans2(X, na.rm = TRUE)
+row_sds   <- rowSds(X, na.rm = TRUE)
+
+# Scale in-place
+X <- (X - row_means) / row_sds
+
+mval_scaled <- X
+rm(X, row_means, row_sds, mval_matrix, probe_n, probe_sd)
 gc()
 
 removed <- sum(!keep)
@@ -52,5 +64,8 @@ if (anyNA(mval_scaled)) {
 # Save outputs
 # ------------------------------------------------
 saveRDS(mval_scaled, "results/processed/mval_matrix_sesame_scaled.rds")
+
+rm(mval_scaled, keep)
+gc()
 
 message("Script 03 completed successfully.")

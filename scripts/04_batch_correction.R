@@ -11,6 +11,7 @@ if (!endsWith(getwd(), "R/projects/r-methylation-analysis")) {
 suppressPackageStartupMessages({
   library(sva)
   library(sesame)
+  library(GenomicRanges)
 })
 
 message("Loading SeSAMe-processed data...")
@@ -24,7 +25,26 @@ message("Number of rows in targets: ", nrow(targets))
 # Ensure sample alignment
 # ------------------------------------------------
 
-if (!all(colnames(mval) %in% targets$sample_name)) {
+mval_samples    <- colnames(mval)
+target_samples  <- targets$sample_name
+
+missing_in_targets <- setdiff(mval_samples, target_samples)
+missing_in_mval    <- setdiff(target_samples, mval_samples)
+
+if (length(missing_in_targets) > 0 || length(missing_in_mval) > 0) {
+  
+  message("---- Sample name mismatch detected ----")
+  
+  if (length(missing_in_targets) > 0) {
+    message("Samples in mval but NOT in targets (", length(missing_in_targets), "):")
+    print(missing_in_targets)
+  }
+  
+  if (length(missing_in_mval) > 0) {
+    message("Samples in targets but NOT in mval (", length(missing_in_mval), "):")
+    print(missing_in_mval)
+  }
+  
   stop("Sample names in mval matrix do not match targets table.")
 }
 
@@ -57,15 +77,32 @@ if (nlevels(batch) < 2) {
   mval_corrected <- mval
   combat_ran <- FALSE
 } else {
-  message("Running ComBat with ", nlevels(batch), " batches.")
-  mval_corrected <- ComBat(
-    dat = mval,
-    batch = batch,
-    mod = mod,
-    par.prior = TRUE,
-    prior.plots = FALSE
-  )
+  gr <- sesameData_getManifestGRanges("EPICv2")
+  chr <- as.character(seqnames(gr))
+  names(chr) <- names(gr)
+  
+  # Keep only probes in matrix
+  chr <- chr[rownames(mval)]
+  
+  mval_corrected <- matrix(NA, nrow = nrow(mval), ncol = ncol(mval),
+                           dimnames = dimnames(mval))
+  
+  for (c in unique(chr)) {
+    message("Running ComBat on ", c)
+    
+    idx <- which(chr == c)
+    X <- mval[idx, ]
+    
+    # Skip tiny chromosomes
+    if (length(idx) < 100) next
+    
+    Xc <- ComBat(dat = X, batch = batch, mod = mod, par.prior = TRUE)
+    mval_corrected[idx, ] <- Xc
+    
+    rm(X, Xc); gc()
+  }
   combat_ran <- TRUE
+  rm(gr, chr, names)
 }
 
 rm(mval, mod, batch)
@@ -75,6 +112,8 @@ gc()
 # Save output
 # ------------------------------------------------
 
+message("Saving outputs")
+
 mask <- readRDS("results/processed/final_probe_mask.rds")
 mval_corrected[!mask, ] <- NA
 
@@ -83,7 +122,7 @@ saveRDS(mval_corrected, "results/processed/mval_matrix_sesame_batch_corrected.rd
 # Convert corrected M-values back to betas
 beta_corrected <- MValueToBetaValue(mval_corrected)
 
-rm(mval_corrected)
+rm(mval_corrected, mask)
 gc()
 
 saveRDS(beta_corrected, "results/processed/beta_matrix_sesame_batch_corrected.rds")

@@ -26,8 +26,7 @@ ref_beta <- getBeta(ref_mset)
 ref_mval <- getM(ref_mset)
 celltypes <- factor(pData(ref_mset)$CellType)
 
-rm(ref_rg, ref_mset)
-gc()
+rm(ref_mset, ref_rg)
 
 message("Reference samples: ", length(celltypes))
 message("Cell types: ", paste(levels(celltypes), collapse = ", "))
@@ -39,7 +38,6 @@ ref_beta_centroids <- as.matrix(ref_beta_centroids)
 
 saveRDS(ref_beta_centroids, "results/processed/ref_beta_epic_centroids.rds")
 rm(ref_beta_centroids)
-gc()
 
 # ------------------------------------------------------------
 # Load SeSAMe bulk M-values
@@ -129,7 +127,7 @@ common <- intersect(common, epic_ids)
 message("Shared CpGs: ", length(common))
 stopifnot(length(common) > 300000)
 
-rm(epic_gr, epic_ids, epicv2_to_epic, old_ids, new_ids)
+rm(epic_gr, epic_ids, epicv2_to_epic, old_ids, new_ids, mval_bulk, ref_mval)
 
 ref_beta <- ref_beta[common, ]
 
@@ -187,7 +185,7 @@ rownames(trainingCovariates) <- colnames(ref_beta)
 
 stopifnot(all(colnames(trainingCovariates) == idol_classes))
 
-rm(onehot, idol_classes, celltypes)
+rm(onehot, idol_classes)
 gc()
 
 message("Running IDOLoptimize")

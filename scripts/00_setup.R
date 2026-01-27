@@ -82,6 +82,8 @@ cran_pkgs <- c(
 
 install_if_missing(cran_pkgs)
 
+remotes::install_github("qsbase/qs")
+
 # -----------------------------
 # Install SeSAMe and sesameData cleanly
 # -----------------------------

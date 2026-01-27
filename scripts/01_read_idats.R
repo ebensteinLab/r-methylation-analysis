@@ -10,7 +10,7 @@ library(tidyverse)
 # Directories containing sample sheets
 # -----------------------------
 find_idat_dirs <- function(
-    base_dir = "R/projects/r-methylation-analysis/raw_data",
+    base_dir = "raw_data/genomic",
     samplesheet = "samplesheet.csv",
     recursive = FALSE
 ) {
@@ -92,5 +92,8 @@ targets <- targets %>% select(-GrnExists, -RedExists)
 # Save merged sample sheet
 # -----------------------------
 saveRDS(targets, "results/processed/targets_merged.rds")
+
+rm(targets)
+gc()
 message("Saved: results/processed/targets_merged.rds")
 
