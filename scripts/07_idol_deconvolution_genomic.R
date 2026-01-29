@@ -11,39 +11,27 @@ suppressPackageStartupMessages({
 message("Loading inputs...")
 
 # ------------------------------------------------
-# Load bulk beta values and metadata
+# Load bulk beta values (should be EPICv2 probe IDs, incl suffix)
 # ------------------------------------------------
 beta <- readRDS("results/processed/beta_matrix_sesame_batch_corrected.rds")
 targets <- readRDS("results/processed/targets_merged.rds")
 
 stopifnot(ncol(beta) == nrow(targets))
 
-# ------------------------------------------------
-# Load IDOL outputs
-# ------------------------------------------------
-idol_probes <- readRDS("results/processed/idol_cpgs.rds")
-epicv2_to_epic <- readRDS("results/processed/epicv2_to_epic_map.rds")
-ref_beta_centroids <- readRDS("results/processed/ref_beta_epic_centroids.rds")
+message("Bulk beta dims: ", nrow(beta), " x ", ncol(beta))
+message("Bulk beta rowname example: ", rownames(beta)[1])
 
-message("IDOL CpGs: ", length(idol_probes))
+# ------------------------------------------------
+# Load IDOL outputs (EPICv2 space)
+# ------------------------------------------------
+idol_probes <- readRDS("results/processed/idol_cpgs_epicv2.rds")
+ref_beta_centroids <- readRDS("results/processed/ref_beta_epicv2_centroids.rds")
+
+message("IDOL probes (EPICv2): ", length(idol_probes))
 message("Reference cell types: ", paste(colnames(ref_beta_centroids), collapse = ", "))
 
 # ------------------------------------------------
-# Harmonize probe IDs (EPICv2 → EPIC v1)
-# ------------------------------------------------
-old_ids <- rownames(beta)
-new_ids <- epicv2_to_epic[old_ids]
-
-keep <- !is.na(new_ids)
-
-beta <- beta[keep, , drop = FALSE]
-rownames(beta) <- new_ids[keep]
-
-rm(old_ids, new_ids, keep, epicv2_to_epic)
-gc()
-
-# ------------------------------------------------
-# Restrict to IDOL CpGs
+# Restrict to IDOL probes present in BOTH bulk and reference
 # ------------------------------------------------
 common_idol <- Reduce(
   intersect,
@@ -54,7 +42,9 @@ common_idol <- Reduce(
   )
 )
 
-message("CpGs used for deconvolution: ", length(common_idol))
+message("Probes used for deconvolution: ", length(common_idol))
+
+# For safety; you can lower temporarily if you’re debugging
 stopifnot(length(common_idol) > 200)
 
 beta_idol <- beta[common_idol, , drop = FALSE]
@@ -80,15 +70,17 @@ rm(beta_idol, ref_idol, deconv)
 gc()
 
 # ------------------------------------------------
-# Assemble final output table
+# Assemble output table
 # ------------------------------------------------
+# Ensure rows of fractions match samples
+stopifnot(identical(rownames(fractions), targets$sample_name) ||
+            identical(rownames(fractions), rownames(targets)) ||
+            nrow(fractions) == nrow(targets))
+
 fractions_df <- cbind(
   targets[, c("sample_name", "Patient"), drop = FALSE],
   fractions
 )
-
-rm(fractions, targets)
-gc()
 
 # Optional: derive Disease from Patient (ignore first 5 chars)
 fractions_df$Disease <- substr(fractions_df$Patient, 6, nchar(fractions_df$Patient))
@@ -96,19 +88,19 @@ fractions_df$Disease <- substr(fractions_df$Patient, 6, nchar(fractions_df$Patie
 # ------------------------------------------------
 # Save
 # ------------------------------------------------
-out_file <- "results/processed/blood_cell_fractions_idol_all_samples.rds"
+out_file <- "results/deconvolution/blood_cell_fractions_idol_all_samples_epicv2.rds"
 saveRDS(fractions_df, out_file)
 
 fractions_df_rounded <- fractions_df
 num_cols <- sapply(fractions_df_rounded, is.numeric)
 fractions_df_rounded[, num_cols] <- round(fractions_df_rounded[, num_cols], 5)
 
-csv_file <- "results/processed/blood_cell_fractions_idol_all_samples.csv"
+csv_file <- "results/deconvolution/blood_cell_fractions_idol_all_samples_epicv2.csv"
 write.csv(fractions_df_rounded, file = csv_file, row.names = FALSE)
 
 message("Saved deconvolution results to:")
 message(out_file)
 message(csv_file)
 
-rm(fractions_df, fractions_df_rounded, num_cols, out_file, csv_file)
+rm(fractions_df, fractions_df_rounded, num_cols)
 gc()

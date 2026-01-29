@@ -94,10 +94,10 @@ process_batch <- function(batch_targets, batch_id) {
   
   message("Saving batch ", batch_id)
   
-  qsave(beta_list, file.path(OUT_BATCH_DIR, sprintf("beta_batch_%03d.qs", batch_id)), preset="balanced")
-  qsave(mval_list, file.path(OUT_BATCH_DIR, sprintf("mval_batch_%03d.qs", batch_id)), preset="balanced")
-  qsave(mval_raw_list, file.path(OUT_BATCH_DIR, sprintf("mval_raw_batch_%03d.qs", batch_id)), preset="balanced")
-  qsave(mask_list, file.path(OUT_BATCH_DIR, sprintf("mask_batch_%03d.qs", batch_id)), preset="balanced")
+  qsave(beta_list, file.path(OUT_BATCH_DIR, sprintf("g_beta_batch_%03d.qs", batch_id)), preset="balanced")
+  qsave(mval_list, file.path(OUT_BATCH_DIR, sprintf("g_mval_batch_%03d.qs", batch_id)), preset="balanced")
+  qsave(mval_raw_list, file.path(OUT_BATCH_DIR, sprintf("g_mval_raw_batch_%03d.qs", batch_id)), preset="balanced")
+  qsave(mask_list, file.path(OUT_BATCH_DIR, sprintf("g_mask_batch_%03d.qs", batch_id)), preset="balanced")
   
   rm(beta_list, mval_list, mval_raw_list, mask_list)
   gc(verbose = FALSE)
@@ -110,10 +110,10 @@ process_batch <- function(batch_targets, batch_id) {
 # Run all batches (skip already processed)
 # ------------------------------------------------------------
 for (b in seq_along(batches)) {
-  beta_file <- file.path(OUT_BATCH_DIR, sprintf("beta_batch_%03d.qs", b))
-  mval_file <- file.path(OUT_BATCH_DIR, sprintf("mval_batch_%03d.qs", b))
-  mval_raw_file <- file.path(OUT_BATCH_DIR, sprintf("mval_raw_batch_%03d.qs", b))
-  mask_file <- file.path(OUT_BATCH_DIR, sprintf("mask_batch_%03d.qs", b))
+  beta_file <- file.path(OUT_BATCH_DIR, sprintf("g_beta_batch_%03d.qs", b))
+  mval_file <- file.path(OUT_BATCH_DIR, sprintf("g_mval_batch_%03d.qs", b))
+  mval_raw_file <- file.path(OUT_BATCH_DIR, sprintf("g_mval_raw_batch_%03d.qs", b))
+  mask_file <- file.path(OUT_BATCH_DIR, sprintf("g_mask_batch_%03d.qs", b))
   
   if (file.exists(beta_file) && file.exists(mval_file)) {
     message("Skipping batch ", b, " (already exists)")
@@ -133,7 +133,7 @@ gc()
 message("\n========== Merging batches ==========")
 
 # Load batches one by one
-beta_files <- list.files(OUT_BATCH_DIR, pattern = "^beta_batch_.*qs$", full.names = TRUE)
+beta_files <- list.files(OUT_BATCH_DIR, pattern = "^g_beta_batch_.*qs$", full.names = TRUE)
 beta_all <- list()
 for (f in beta_files) {
   message("Loading ", f)
@@ -164,7 +164,7 @@ gc()
 
 message("Building RAW M-value matrix...")
 
-mval_raw_files <- list.files(OUT_BATCH_DIR, pattern = "^mval_raw_batch_.*qs$", full.names = TRUE)
+mval_raw_files <- list.files(OUT_BATCH_DIR, pattern = "^g_mval_raw_batch_.*qs$", full.names = TRUE)
 mval_raw_all <- list()
 
 for (f in mval_raw_files) {
@@ -187,7 +187,7 @@ rm(mval_raw_matrix)
 gc()
 
 message("Building M-value matrix...")
-mval_files <- list.files(OUT_BATCH_DIR, pattern = "^mval_batch_.*qs$", full.names = TRUE)
+mval_files <- list.files(OUT_BATCH_DIR, pattern = "^g_mval_batch_.*qs$", full.names = TRUE)
 mval_all <- list()
 for (f in mval_files) {
   message("Loading ", f)
@@ -208,7 +208,7 @@ gc()
 
 message("Building mask matrix...")
 
-mask_files <- list.files(OUT_BATCH_DIR, pattern = "^mask_batch_.*qs$", full.names = TRUE)
+mask_files <- list.files(OUT_BATCH_DIR, pattern = "^g_mask_batch_.*qs$", full.names = TRUE)
 
 mask_all <- list()
 for (f in mask_files) {

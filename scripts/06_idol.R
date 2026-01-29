@@ -1,215 +1,211 @@
 #!/usr/bin/env Rscript
 
+# ============================================================
+# 06_idol.R
+# Train IDOL using FlowSorted.Blood.EPIC reference, restricted
+# to CpGs present in your EPICv2 SeSAMe bulk matrices.
+#
+# Key fixes:
+# - NO liftover (Illumina cg IDs are shared directly)
+# - Normalize SeSAMe suffix IDs
+# - Collapse duplicates after normalization
+# - Restrict training universe to probes present in bulk
+# ============================================================
+
 if (!endsWith(getwd(), "R/projects/r-methylation-analysis")) {
   setwd("R/projects/r-methylation-analysis")
 }
 
-library(ExperimentHub)
-library(minfi)
-library(limma)
-library(IDOL)
-library(sesameData)
-library(rtracklayer)
-library(GenomicRanges)
-library(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
+suppressPackageStartupMessages({
+  library(ExperimentHub)
+  library(minfi)
+  library(IDOL)
+})
 
-sesameDataCache()
+options(ExperimentHub.ask = FALSE)
+set.seed(1)
+
+OUT_PROC_DIR <- "results/processed"
+dir.create(OUT_PROC_DIR, recursive = TRUE, showWarnings = FALSE)
 
 # ------------------------------------------------------------
-# Load FlowSorted Blood EPIC reference
+# Helpers
 # ------------------------------------------------------------
+
+# cg00000109_TC21 -> cg00000109
+normalize_sesame_ids_vec <- function(x) sub("_.*$", "", x)
+
+# Collapse duplicated rownames by mean across duplicates
+collapse_duplicate_rows_mean <- function(mat) {
+  stopifnot(!is.null(rownames(mat)))
+  rn <- rownames(mat)
+  if (!anyDuplicated(rn)) return(mat)
+  
+  # rowsum collapses by group; works for numeric matrices
+  # but we need means: sum / count
+  counts <- table(rn)
+  summed <- rowsum(mat, group = rn, reorder = FALSE)
+  means <- summed / as.numeric(counts[rownames(summed)])
+  means
+}
+
+# Load bulk matrix (beta preferred, else mval) and return normalized+collapsed rownames
+load_bulk_probe_universe <- function(out_dir) {
+  beta_file <- file.path(out_dir, "beta_matrix_sesame_batch_corrected.rds")
+  mval_file <- file.path(out_dir, "mval_matrix_sesame_batch_corrected.rds")
+  
+  if (file.exists(beta_file)) {
+    message("Loading bulk beta matrix: ", beta_file)
+    bulk <- readRDS(beta_file)
+  } else if (file.exists(mval_file)) {
+    message("Loading bulk mval matrix: ", mval_file)
+    bulk <- readRDS(mval_file)
+  } else {
+    stop("Could not find bulk beta or mval matrix in ", out_dir,
+         "\nExpected one of:\n - ", beta_file, "\n - ", mval_file)
+  }
+  
+  # Normalize and collapse duplicates
+  rownames(bulk) <- normalize_sesame_ids_vec(rownames(bulk))
+  bulk <- collapse_duplicate_rows_mean(bulk)
+  
+  message("Bulk probe universe after normalize+collapse: ", nrow(bulk))
+  rownames(bulk)
+}
+
+# ------------------------------------------------------------
+# 1) Load FlowSorted reference (EPIC v1)
+# ------------------------------------------------------------
+message("Loading FlowSorted Blood EPIC reference (EH1136)...")
 eh <- ExperimentHub()
-ref_rg <- eh[["EH1136"]]   # EPIC blood reference
+ref_rg <- eh[["EH1136"]]
 
 ref_mset <- preprocessNoob(ref_rg)
 ref_beta <- getBeta(ref_mset)
-ref_mval <- getM(ref_mset)
 celltypes <- factor(pData(ref_mset)$CellType)
 
-rm(ref_mset, ref_rg)
-
-message("Reference samples: ", length(celltypes))
-message("Cell types: ", paste(levels(celltypes), collapse = ", "))
-
-ref_beta_centroids <- sapply(levels(celltypes), function(ct) {
-  rowMeans(ref_beta[, celltypes == ct, drop = FALSE], na.rm = TRUE)
-})
-ref_beta_centroids <- as.matrix(ref_beta_centroids)
-
-saveRDS(ref_beta_centroids, "results/processed/ref_beta_epic_centroids.rds")
-rm(ref_beta_centroids)
-
-# ------------------------------------------------------------
-# Load SeSAMe bulk M-values
-# ------------------------------------------------------------
-mval_bulk <- readRDS("results/processed/mval_matrix_sesame_batch_corrected.rds")
-targets <- readRDS("results/processed/targets_merged.rds")
-
-# ------------------------------------------------------------
-# Harmonize SeSAMe and EPIC probe IDs
-# ------------------------------------------------------------
-
-# Map EPICv2 probe IDs -> EPIC v1 probe IDs
-addr <- sesameDataGet("EPICv2.address")
-epicv2_gr <- addr$hg38
-names(epicv2_gr) <- names(addr$hg38)
-
-epic_anno <- getAnnotation(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
-
-epic_gr <- GRanges(
-  seqnames = epic_anno$chr,
-  ranges   = IRanges(epic_anno$pos, width=1),
-  strand   = "*",
-  probe    = rownames(epic_anno)
-)
-
-rm(epic_anno, addr)
-
-chain <- import.chain("hg19ToHg38.over.chain")
-
-epic_gr_hg38 <- liftOver(epic_gr, chain)
-epic_gr_hg38 <- unlist(epic_gr_hg38)
-
-# --- EPIC (hg19) -> hg38 via liftOver, preserving EPIC probe IDs ---
-epic_gr_hg38_list <- liftOver(epic_gr, chain)
-
-# Keep only probes that map to exactly one hg38 locus (avoid multi-mappers)
-one_map <- lengths(epic_gr_hg38_list) == 1
-epic_gr_hg38 <- unlist(epic_gr_hg38_list[one_map], use.names = FALSE)
-
-# Restore EPIC probe IDs as names after unlist
-names(epic_gr_hg38) <- epic_gr$probe[one_map]
-
-# Ensure widths match EPICv2 (EPICv2 ranges are width=2 in your object)
-epic_gr_hg38 <- resize(epic_gr_hg38, width = 2, fix = "start")
-
-# --- IMPORTANT: overlap in the SAME genome build (hg38 vs hg38) ---
-hits <- findOverlaps(epic_gr_hg38, epicv2_gr, maxgap = 0)
-
-# EPICv2 probe IDs
-epicv2_ids <- names(epicv2_gr)[subjectHits(hits)]
-# EPIC probe IDs (from names we set)
-epic_ids_mapped <- names(epic_gr_hg38)[queryHits(hits)]
-
-rm(hits, epic_gr_hg38, epic_gr_hg38_list, one_map, chain)
-
-# Build lookup: EPICv2 -> EPIC
-# If multiple EPIC map to same EPICv2, keep the first (you can change policy)
-epicv2_to_epic <- epic_ids_mapped
-names(epicv2_to_epic) <- epicv2_ids
-epicv2_to_epic <- epicv2_to_epic[!duplicated(names(epicv2_to_epic))]
-saveRDS(epicv2_to_epic, "results/processed/epicv2_to_epic_map.rds")
-
-rm(epicv2_gr, epic_ids_mapped)
-
-message("Mapped EPICv2 IDs: ", length(epicv2_to_epic))
-
-mapped_fraction <- mean(rownames(mval_bulk) %in% names(epicv2_to_epic))
-message("Fraction of bulk probes that have a mapping: ", round(mapped_fraction, 3))
-
-# Convert SeSAMe rownames
-old_ids <- rownames(mval_bulk)
-new_ids <- epicv2_to_epic[old_ids]
-
-rownames(mval_bulk) <- new_ids
-mval_bulk <- mval_bulk[!is.na(rownames(mval_bulk)), , drop = FALSE]
-
-epic_gr <- sesameData_getManifestGRanges("EPIC")
-epic_ids <- names(epic_gr)   # EPIC cg IDs
-message("EPIC IDs: ", length(epic_ids))
-message("Mapped EPICv2 IDs: ", length(epicv2_to_epic))
-message("N bulk probes: ", nrow(mval_bulk))
-message("N mapped: ", sum(!is.na(new_ids)))
-
-common <- intersect(rownames(ref_mval), rownames(mval_bulk))
-common <- intersect(common, epic_ids)
-
-message("Shared CpGs: ", length(common))
-stopifnot(length(common) > 300000)
-
-rm(epic_gr, epic_ids, epicv2_to_epic, old_ids, new_ids, mval_bulk, ref_mval)
-
-ref_beta <- ref_beta[common, ]
-
-saveRDS(ref_beta, "results/processed/ref_beta_epic.rds")
-
-rm(common)
-
+rm(ref_rg, ref_mset)
 gc()
 
+message("Reference samples: ", length(celltypes))
+message("Reference cell types: ", paste(levels(celltypes), collapse = ", "))
+message("Reference CpGs: ", nrow(ref_beta))
 
 # ------------------------------------------------------------
-# Build candidate DMR finder (IDOL internal)
+# 2) Restrict training CpGs to those present in your EPICv2 bulk matrices
+#    (by cg ID, after SeSAMe suffix normalization)
 # ------------------------------------------------------------
-message("Creating candFinder")
+bulk_universe <- load_bulk_probe_universe(OUT_PROC_DIR)
+
+common <- intersect(rownames(ref_beta), bulk_universe)
+message("CpGs shared (reference ∩ bulk): ", length(common))
+
+if (length(common) < 50000) {
+  stop("Too few shared CpGs (", length(common), "). ",
+       "This likely indicates a probe-ID mismatch or wrong input matrices.")
+}
+
+ref_beta_shared <- ref_beta[common, , drop = FALSE]
+rm(ref_beta, bulk_universe, common)
+gc()
+
+message("Training beta matrix: ", nrow(ref_beta_shared), " CpGs x ",
+        ncol(ref_beta_shared), " samples")
+
+# ------------------------------------------------------------
+# 3) Save EPICv2-space reference centroids for deconvolution
+#    (still cg IDs; these are what exist in your EPICv2 bulk after normalization)
+# ------------------------------------------------------------
+message("Computing reference centroids (shared CpGs)...")
+ref_centroids <- sapply(levels(celltypes), function(ct) {
+  rowMeans(ref_beta_shared[, celltypes == ct, drop = FALSE], na.rm = TRUE)
+})
+ref_centroids <- as.matrix(ref_centroids)
+
+saveRDS(ref_centroids, file.path(OUT_PROC_DIR, "ref_beta_shared_centroids.rds"))
+saveRDS(levels(celltypes), file.path(OUT_PROC_DIR, "ref_celltypes_levels.rds"))
+
+rm(ref_centroids)
+gc()
+
+# ------------------------------------------------------------
+# 4) Candidate DMR Finder
+# ------------------------------------------------------------
+message("Creating CandidateDMRFinder.v2...")
 covars <- data.frame(CellType = celltypes, dummy = seq_along(celltypes))
-rownames(covars) <- colnames(ref_beta)
+rownames(covars) <- colnames(ref_beta_shared)
+
 candFinder <- CandidateDMRFinder.v2(
   cellTypes       = celltypes,
-  referenceBetas  = ref_beta,
+  referenceBetas  = ref_beta_shared,
   referenceCovars = covars,
-  M = 150,
-  equal.variance = FALSE
+  M               = 150,
+  equal.variance  = FALSE
 )
 
-# ------------------------------------------------------------
-# Patch candFinder to make it compatible with IDOLoptimize
-# ------------------------------------------------------------
-
-coef <- candFinder$coefEsts
-labs <- colnames(coef)
-
-# unique cell types
-u <- unique(labs)
-
-# collapse coefEsts by cell type (mean across samples)
-coef_collapsed <- sapply(u, function(ct) {
-  rowMeans(coef[, labs == ct, drop = FALSE])
-})
-
-# Replace coefEsts with collapsed version
-candFinder$coefEsts <- coef_collapsed
-message(" ", colnames(candFinder$coefEsts))
+rm(covars)
+gc()
 
 # ------------------------------------------------------------
-# IDOL optimization
+# 5) Patch coefEsts if duplicated columns exist (common with some setups)
 # ------------------------------------------------------------
+if (!is.null(candFinder$coefEsts) && anyDuplicated(colnames(candFinder$coefEsts))) {
+  message("Patching candFinder$coefEsts (collapsing duplicate columns by mean)...")
+  coef <- candFinder$coefEsts
+  labs <- colnames(coef)
+  u <- unique(labs)
+  coef_collapsed <- sapply(u, function(ct) rowMeans(coef[, labs == ct, drop = FALSE]))
+  candFinder$coefEsts <- coef_collapsed
+  rm(coef, labs, u, coef_collapsed)
+  gc()
+}
 
 idol_classes <- colnames(candFinder$coefEsts)
+message("IDOL classes: ", paste(idol_classes, collapse = ", "))
 
+# ------------------------------------------------------------
+# 6) Build training covariates (one-hot)
+# ------------------------------------------------------------
 onehot <- model.matrix(~ 0 + celltypes)
 colnames(onehot) <- levels(celltypes)
 
 trainingCovariates <- onehot[, idol_classes, drop = FALSE]
-rownames(trainingCovariates) <- colnames(ref_beta)
+rownames(trainingCovariates) <- colnames(ref_beta_shared)
 
 stopifnot(all(colnames(trainingCovariates) == idol_classes))
 
-rm(onehot, idol_classes)
+rm(onehot)
 gc()
 
-message("Running IDOLoptimize")
+# ------------------------------------------------------------
+# 7) Run IDOL optimization
+# ------------------------------------------------------------
+message("Running IDOLoptimize...")
 idol_res <- IDOLoptimize(
   candDMRFinderObject = candFinder,
-  trainingBetas       = ref_beta,
+  trainingBetas       = ref_beta_shared,
   trainingCovariates  = trainingCovariates,
   libSize             = 300,
   maxIt               = 500,
   numCores            = 4
 )
 
-rm(candFinder, ref_beta, trainingCovariates)
-gc()
-
-idol_probes <- idol_res[[ "IDOL Optimized Library" ]]
-
+idol_probes <- idol_res[["IDOL Optimized Library"]]
 message("IDOL selected CpGs: ", length(idol_probes))
 
 # ------------------------------------------------------------
-# Save
+# 8) Save outputs
 # ------------------------------------------------------------
-saveRDS(idol_probes, "results/processed/idol_cpgs.rds")
-saveRDS(idol_res, "results/processed/idol_model.rds")
+saveRDS(idol_probes, file.path(OUT_PROC_DIR, "idol_cpgs_shared.rds"))
+saveRDS(idol_res,    file.path(OUT_PROC_DIR, "idol_model_shared.rds"))
+saveRDS(ref_beta_shared, file.path(OUT_PROC_DIR, "ref_beta_shared.rds"))
 
-rm(idol_probes, idol_res)
+rm(candFinder, ref_beta_shared, trainingCovariates, idol_res, idol_probes, celltypes)
 gc()
+
+message("Done. Saved:")
+message(" - results/processed/idol_cpgs_shared.rds")
+message(" - results/processed/idol_model_shared.rds")
+message(" - results/processed/ref_beta_shared_centroids.rds")
+message(" - results/processed/ref_beta_shared.rds (large)")
+message(" - results/processed/ref_celltypes_levels.rds")

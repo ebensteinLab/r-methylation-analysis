@@ -16,45 +16,53 @@ suppressPackageStartupMessages({
 
 message("Loading SeSAMe-processed data...")
 
-mval <- readRDS("results/processed/mval_matrix_raw_sesame.rds")
-targets <- readRDS("results/processed/targets_merged.rds")
+normalize_sesame_ids <- function(mat) {
+  base <- sub("_.*$", "", rownames(mat))
+  rownames(mat) <- base
+  mat[!duplicated(base), ]
+}
 
-message("Number of rows in targets: ", nrow(targets))
+cf_mval <- readRDS("results/processed/cf_mval_matrix_raw_sesame.rds")
+cf_mval <- normalize_sesame_ids(cf_mval)
+cf_targets <- readRDS("results/processed/cf_targets_merged.rds")
+
+message("Number of rows in targets: ", nrow(cf_targets))
 
 # ------------------------------------------------
 # Ensure sample alignment
 # ------------------------------------------------
 
-mval_samples    <- colnames(mval)
-target_samples  <- targets$sample_name
+cf_mval_samples    <- colnames(cf_mval)
+cf_target_samples  <- cf_targets$Patient
 
-missing_in_targets <- setdiff(mval_samples, target_samples)
-missing_in_mval    <- setdiff(target_samples, mval_samples)
+missing_in_cf_targets <- setdiff(cf_mval_samples, cf_target_samples)
+cf_missing_in_mval    <- setdiff(cf_target_samples, cf_mval_samples)
+rm(cf_mval_samples, cf_target_samples)
 
-if (length(missing_in_targets) > 0 || length(missing_in_mval) > 0) {
+if (length(missing_in_cf_targets) > 0 || length(cf_missing_in_mval) > 0) {
   
   message("---- Sample name mismatch detected ----")
   
-  if (length(missing_in_targets) > 0) {
-    message("Samples in mval but NOT in targets (", length(missing_in_targets), "):")
-    print(missing_in_targets)
+  if (length(missing_in_cf_targets) > 0) {
+    message("Samples in mval but NOT in targets (", length(missing_in_cf_targets), "):")
+    print(missing_in_cf_targets)
   }
   
-  if (length(missing_in_mval) > 0) {
-    message("Samples in targets but NOT in mval (", length(missing_in_mval), "):")
-    print(missing_in_mval)
+  if (length(cf_missing_in_mval) > 0) {
+    message("Samples in targets but NOT in mval (", length(cf_missing_in_mval), "):")
+    print(cf_missing_in_mval)
   }
   
   stop("Sample names in mval matrix do not match targets table.")
 }
 
-targets <- targets[match(colnames(mval), targets$sample_name), ]
+cf_targets <- cf_targets[match(colnames(cf_mval), cf_targets$Patient), ]
 
 # ------------------------------------------------
-# Define batch variable: targets$Sentrix_Id
+# Define batch variable: cf_targets$Sentrix_Id
 # ------------------------------------------------
 
-batch <- as.factor(targets$Sentrix_Id)
+batch <- as.factor(cf_targets$Sentrix_Id)
 
 if (anyNA(batch)) {
   stop("Batch variable contains NA values.")
@@ -62,11 +70,11 @@ if (anyNA(batch)) {
 
 message("Batch levels: ", paste(levels(batch), collapse = ", "))
 
-keep <- rowSums(!is.na(mval)) == length(batch)
-mval <- mval[keep, ]
-mod <- model.matrix(~ 1, data = targets)  # no biological covariates
+keep <- rowMeans(!is.na(cf_mval)) > 0.7
+cf_mval <- cf_mval[keep, ]
+mod <- model.matrix(~ 1, data = cf_targets)  # no biological covariates
 
-rm(targets, keep)
+rm(cf_targets, keep)
 gc()
 
 # ------------------------------------------------
@@ -74,7 +82,7 @@ gc()
 # ------------------------------------------------
 if (nlevels(batch) < 2) {
   warning("Only one batch detected; skipping ComBat.")
-  mval_corrected <- mval
+  mval_corrected <- cf_mval
   combat_ran <- FALSE
 } else {
   gr <- sesameData_getManifestGRanges("EPICv2")
@@ -82,16 +90,16 @@ if (nlevels(batch) < 2) {
   names(chr) <- names(gr)
   
   # Keep only probes in matrix
-  chr <- chr[rownames(mval)]
+  chr <- chr[rownames(cf_mval)]
   
-  mval_corrected <- matrix(NA, nrow = nrow(mval), ncol = ncol(mval),
-                           dimnames = dimnames(mval))
+  mval_corrected <- matrix(NA, nrow = nrow(cf_mval), ncol = ncol(cf_mval),
+                           dimnames = dimnames(cf_mval))
   
   for (c in unique(chr)) {
     message("Running ComBat on ", c)
     
     idx <- which(chr == c)
-    X <- mval[idx, ]
+    X <- cf_mval[idx, ]
     
     # Skip tiny chromosomes
     if (length(idx) < 100) next
@@ -102,10 +110,10 @@ if (nlevels(batch) < 2) {
     rm(X, Xc); gc()
   }
   combat_ran <- TRUE
-  rm(gr, chr, names)
+  rm(gr, chr)
 }
 
-rm(mval, mod, batch)
+rm(cf_mval, mod, batch)
 gc()
 
 # ------------------------------------------------
@@ -114,10 +122,12 @@ gc()
 
 message("Saving outputs")
 
-mask <- readRDS("results/processed/mask_matrix_sesame.rds")
-mval_corrected[!mask, ] <- NA
+mask_matrix <- readRDS("results/processed/cf_mask_matrix_sesame.rds")
+mask <- rowMeans(mask_matrix) > 0.7
+rm(mask_matrix)
+gc()
 
-saveRDS(mval_corrected, "results/processed/mval_matrix_sesame_batch_corrected.rds")
+saveRDS(mval_corrected, "results/processed/cf_mval_matrix_sesame_batch_corrected.rds")
 
 # Convert corrected M-values back to betas
 beta_corrected <- MValueToBetaValue(mval_corrected)
@@ -125,7 +135,7 @@ beta_corrected <- MValueToBetaValue(mval_corrected)
 rm(mval_corrected, mask)
 gc()
 
-saveRDS(beta_corrected, "results/processed/beta_matrix_sesame_batch_corrected.rds")
+saveRDS(beta_corrected, "results/processed/cf_beta_matrix_sesame_batch_corrected.rds")
 
 rm(beta_corrected)
 gc()
