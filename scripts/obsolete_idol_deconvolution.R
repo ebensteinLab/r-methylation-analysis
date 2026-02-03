@@ -88,7 +88,7 @@ plasma_targets <- targets[is_plasma, ]
 
 # align order with fractions (VERY IMPORTANT)
 plasma_targets <- plasma_targets[
-  match(rownames(fractions), plasma_targets$sample_name),
+  match(rownames(fractions), plasma_targets$Patient),
 ]
 
 # derive disease
@@ -134,7 +134,7 @@ print(kruskal.test(Fraction ~ Disease, data = subset(df_mean, CellType == "Mono"
 library(pheatmap)
 
 mat <- as.matrix(df[, 4:10])
-rownames(mat) <- df$sample_name
+rownames(mat) <- df$Patient
 
 ann_colors <- list(
   Disease = c(

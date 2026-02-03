@@ -13,10 +13,7 @@ message("Loading batch-corrected methylation matrices...")
 # ------------------------------------------------
 # Load data
 # ------------------------------------------------
-mval_corrected <- readRDS(
-  "results/processed/mval_matrix_sesame_batch_corrected.rds"
-)
-
+mval_corrected <- readRDS(  "results/processed/mval_matrix_sesame_batch_corrected.rds")
 beta_corrected <- readRDS("results/processed/beta_matrix_sesame_batch_corrected.rds")
 
 targets <- readRDS("results/processed/targets_merged.rds")
@@ -26,17 +23,17 @@ targets <- readRDS("results/processed/targets_merged.rds")
 # ------------------------------------------------
 stopifnot(
   identical(colnames(mval_corrected), colnames(beta_corrected)),
-  all(colnames(mval_corrected) %in% targets$sample_name)
+  all(colnames(mval_corrected) %in% targets$Patient)
 )
 
 # Reorder metadata to match matrix columns
 targets <- targets[
-  match(colnames(mval_corrected), targets$sample_name),
+  match(colnames(mval_corrected), targets$Patient),
 ]
 
 # Final check
 stopifnot(
-  identical(colnames(mval_corrected), targets$sample_name)
+  identical(colnames(mval_corrected), targets$Patient)
 )
 
 # ------------------------------------------------

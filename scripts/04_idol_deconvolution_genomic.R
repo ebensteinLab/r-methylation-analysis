@@ -10,10 +10,12 @@ suppressPackageStartupMessages({
 
 message("Loading inputs...")
 
+MAX_NA_FRAC <- 0.10   # allow up to 10% missing IDOL probes
+
 # ------------------------------------------------
 # Load bulk beta values (should be EPICv2 probe IDs, incl suffix)
 # ------------------------------------------------
-beta <- readRDS("results/processed/beta_matrix_sesame_batch_corrected.rds")
+beta <- readRDS("results/processed/beta_matrix_sesame.rds")
 targets <- readRDS("results/processed/targets_merged.rds")
 
 stopifnot(ncol(beta) == nrow(targets))
@@ -48,9 +50,39 @@ message("Probes used for deconvolution: ", length(common_idol))
 stopifnot(length(common_idol) > 200)
 
 beta_idol <- beta[common_idol, , drop = FALSE]
+
+# ------------------------------------------------
+# NA diagnostics per sample
+# ------------------------------------------------
+na_per_sample <- colSums(is.na(beta_idol))
+na_frac_per_sample <- na_per_sample / nrow(beta_idol)
+
+summary(na_frac_per_sample)
+
+# Inspect worst samples
+print(head(sort(na_frac_per_sample, decreasing = TRUE), 20))
+
+keep_samples <- na_frac_per_sample <= MAX_NA_FRAC
+
+message("Keeping ", sum(keep_samples), " / ", length(keep_samples), " samples")
+message("Dropping ", sum(!keep_samples), " samples due to high NA fraction")
+
+dropped_samples <- names(keep_samples)[!keep_samples]
+if (length(dropped_samples) > 0) {
+  message("Dropped samples:")
+  print(dropped_samples)
+}
+
+write.csv(data.frame(Patient = dropped_samples), "results/deconvolution/excluded_samples_high_na.csv", row.names = FALSE)
+
+beta_idol <- beta_idol[, keep_samples, drop = FALSE]
+targets   <- targets[match(colnames(beta_idol), targets$Patient), ]
+
+stopifnot(identical(colnames(beta_idol), targets$Patient))
+
 ref_idol  <- ref_beta_centroids[common_idol, , drop = FALSE]
 
-rm(beta, idol_probes, ref_beta_centroids, common_idol)
+rm(beta, idol_probes, ref_beta_centroids, common_idol, dropped_samples)
 gc()
 
 # ------------------------------------------------
@@ -73,12 +105,12 @@ gc()
 # Assemble output table
 # ------------------------------------------------
 # Ensure rows of fractions match samples
-stopifnot(identical(rownames(fractions), targets$sample_name) ||
+stopifnot(identical(rownames(fractions), targets$Patient) ||
             identical(rownames(fractions), rownames(targets)) ||
             nrow(fractions) == nrow(targets))
 
 fractions_df <- cbind(
-  targets[, c("sample_name", "Patient"), drop = FALSE],
+  targets[, c("Patient"), drop = FALSE],
   fractions
 )
 
@@ -88,14 +120,14 @@ fractions_df$Disease <- substr(fractions_df$Patient, 6, nchar(fractions_df$Patie
 # ------------------------------------------------
 # Save
 # ------------------------------------------------
-out_file <- "results/deconvolution/blood_cell_fractions_idol_all_samples_epicv2.rds"
+out_file <- "results/deconvolution/blood_cell_fractions_idol_genomic.rds"
 saveRDS(fractions_df, out_file)
 
 fractions_df_rounded <- fractions_df
 num_cols <- sapply(fractions_df_rounded, is.numeric)
 fractions_df_rounded[, num_cols] <- round(fractions_df_rounded[, num_cols], 5)
 
-csv_file <- "results/deconvolution/blood_cell_fractions_idol_all_samples_epicv2.csv"
+csv_file <- "results/deconvolution/blood_cell_fractions_idol_genomic.csv"
 write.csv(fractions_df_rounded, file = csv_file, row.names = FALSE)
 
 message("Saved deconvolution results to:")

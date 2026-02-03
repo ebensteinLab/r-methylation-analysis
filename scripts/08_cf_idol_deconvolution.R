@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 
 # ============================================================
-# 11_cf_idol_deconvolution.R
+# 08_cf_idol_deconvolution.R
 # Deconvolve (gDNA + cfDNA) bulk EPICv2 SeSAMe matrices using:
 # - IDOL probe library (idol_cpgs_shared.rds)
 # - Reference centroids on shared CpGs (ref_beta_shared_centroids.rds)
@@ -19,6 +19,7 @@ if (!endsWith(getwd(), "R/projects/r-methylation-analysis")) {
 
 suppressPackageStartupMessages({
   library(data.table)
+  library(nnls)
 })
 
 OUT_PROC_DIR <- "results/processed"
@@ -42,47 +43,47 @@ collapse_duplicate_rows_mean <- function(mat) {
 }
 
 # Solve non-negative least squares and renormalize to sum=1
-solve_fractions_nnls <- function(Y, R) {
+solve_fractions_nnls <- function(Y, R, min_probes = 50) {
   # Y: probes x samples
   # R: probes x celltypes (centroids)
-  stopifnot(nrow(Y) == nrow(R))
+  stopifnot(rownames(Y) == rownames(R))
   
-  # Prefer nnls if available
-  if (requireNamespace("nnls", quietly = TRUE)) {
-    X <- matrix(NA_real_, nrow = ncol(R), ncol = ncol(Y))
-    rownames(X) <- colnames(R)
-    colnames(X) <- colnames(Y)
-    
-    Rt <- as.matrix(R)
-    for (j in seq_len(ncol(Y))) {
-      fit <- nnls::nnls(Rt, Y[, j])
-      x <- as.numeric(fit$x)
-      x[x < 0] <- 0
-      s <- sum(x)
-      if (s > 0) x <- x / s
-      X[, j] <- x
-    }
-    return(X)
-  }
-  
-  # Fallback: unconstrained LS -> truncate -> renorm
-  warning("Package 'nnls' not found. Falling back to nonnegative LS + renormalization.")
   X <- matrix(NA_real_, nrow = ncol(R), ncol = ncol(Y))
   rownames(X) <- colnames(R)
   colnames(X) <- colnames(Y)
   
-  Rt <- as.matrix(R)
+  Rt_full <- as.matrix(R)
+  
   for (j in seq_len(ncol(Y))) {
-    x <- tryCatch({
-      coef(lm.fit(x = Rt, y = Y[, j]))
-    }, error = function(e) rep(NA_real_, ncol(Rt)))
     
-    x[is.na(x)] <- 0
+    y <- Y[, j]
+    keep <- is.finite(y)
+    
+    n_keep <- sum(keep)
+    if (n_keep < min_probes) {
+      # Not enough probes → leave NA (or zeros if you prefer)
+      next
+    }
+    
+    Rt <- Rt_full[keep, , drop = FALSE]
+    yj <- y[keep]
+    
+    fit <- tryCatch(
+      nnls::nnls(Rt, yj),
+      error = function(e) NULL
+    )
+    
+    if (is.null(fit)) next
+    
+    x <- as.numeric(fit$x)
     x[x < 0] <- 0
+    
     s <- sum(x)
     if (s > 0) x <- x / s
+    
     X[, j] <- x
   }
+  
   X
 }
 
@@ -91,34 +92,16 @@ solve_fractions_nnls <- function(Y, R) {
 # ------------------------------------------------------------
 idol_file <- file.path(OUT_PROC_DIR, "idol_cpgs_shared.rds")
 ref_centroids_file <- file.path(OUT_PROC_DIR, "ref_beta_shared_centroids.rds")
-targets_file <- file.path(OUT_PROC_DIR, "targets_merged.rds")
 
-beta_file <- file.path(OUT_PROC_DIR, "beta_matrix_sesame_batch_corrected.rds")
-mval_file <- file.path(OUT_PROC_DIR, "mval_matrix_sesame_batch_corrected.rds")
+beta_file <- file.path(OUT_PROC_DIR, "cf_beta_matrix_sesame.rds")
 
 stopifnot(file.exists(idol_file), file.exists(ref_centroids_file))
 
 idol_probes <- readRDS(idol_file)
 ref_centroids <- readRDS(ref_centroids_file)
 
-# Prefer beta matrix; if missing, use mval but warn (deconv works best in beta space)
-if (file.exists(beta_file)) {
-  message("Loading bulk beta matrix: ", beta_file)
-  bulk <- readRDS(beta_file)
-  bulk_space <- "beta"
-} else if (file.exists(mval_file)) {
-  warning("Bulk beta matrix not found. Using mval matrix (not ideal for deconvolution): ", mval_file)
-  bulk <- readRDS(mval_file)
-  bulk_space <- "mval"
-} else {
-  stop("No bulk matrix found. Expected:\n - ", beta_file, "\n - ", mval_file)
-}
-
-# Optional targets
-targets <- NULL
-if (file.exists(targets_file)) {
-  targets <- readRDS(targets_file)
-}
+bulk <- readRDS(beta_file)
+bulk_space <- "beta"
 
 # ------------------------------------------------------------
 # 2) Normalize + collapse bulk IDs
@@ -154,35 +137,30 @@ R <- ref_centroids[common, , drop = FALSE]
 # 4) Deconvolve
 # ------------------------------------------------------------
 message("Deconvolving using ", bulk_space, " space...")
+message("DEBUG: R version: ", R.version.string)
+message("DEBUG: data.table version: ", as.character(packageVersion("data.table")))
+message("DEBUG: nnls available? ", requireNamespace("nnls", quietly = TRUE))
+if (requireNamespace("nnls", quietly = TRUE)) {
+  message("DEBUG: nnls version: ", as.character(packageVersion("nnls")))
+} else {
+  message("DEBUG: Using fallback lm.fit path (more fragile with NA / rank issues).")
+}
 fractions <- solve_fractions_nnls(Y = Y, R = R)
+
+stopifnot(
+  all(abs(colSums(fractions) - 1) < 1e-6 | colSums(fractions) == 0)
+)
 
 # Convert to samples x celltypes for convenience
 fractions_df <- as.data.frame(t(fractions))
-fractions_df$sample_name <- rownames(fractions_df)
+fractions_df$Patient <- rownames(fractions_df)
 
-# ------------------------------------------------------------
-# 5) Merge targets (if available) and save
-# ------------------------------------------------------------
-if (!is.null(targets) && ("sample_name" %in% names(targets))) {
-  # keep only relevant cols to avoid huge merges
-  keep_cols <- intersect(names(targets), c("sample_name", "patient_id", "material", "type", "source", "batch"))
-  merged <- merge(
-    x = targets[, keep_cols, drop = FALSE],
-    y = fractions_df,
-    by = "sample_name",
-    all.y = TRUE,
-    sort = FALSE
-  )
-} else {
-  merged <- fractions_df
-}
+out_rds <- file.path(OUT_RES_DIR, "blood_cell_fractions_idol_cellfree.rds")
+out_csv <- file.path(OUT_RES_DIR, "blood_cell_fractions_idol_cellfree.csv")
 
-out_rds <- file.path(OUT_RES_DIR, "cell_fractions_idol_nnls.rds")
-out_csv <- file.path(OUT_RES_DIR, "cell_fractions_idol_nnls.csv")
-
-saveRDS(merged, out_rds)
+saveRDS(fractions_df, out_rds)
 # Round numeric columns to 5 digits
-merged_csv <- merged
+merged_csv <- fractions_df
 num_cols <- sapply(merged_csv, is.numeric)
 merged_csv[, num_cols] <- round(merged_csv[, num_cols], 5)
 

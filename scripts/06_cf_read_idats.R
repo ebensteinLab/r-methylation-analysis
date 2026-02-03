@@ -43,8 +43,8 @@ cf_targets$RedExists <- file.exists(paste0(cf_targets$Basename, "_Red.idat"))
 missing <- cf_targets %>% filter(!GrnExists | !RedExists)
 
 if (nrow(missing) > 0) {
-  message("❌ Missing IDAT files detected:")
-  print(missing[, c("Sentrix_Id", "Sentrix_Position", "Basename")])
+  message("missing IDAT files detected:")
+  print(missing[, c("Patient", "Sentrix_Id", "Sentrix_Position", "Basename")])
   stop("Fix missing IDAT files before proceeding.")
 }
 

@@ -4,6 +4,10 @@
 # Script 03: Post-processing / normalization of SeSAMe output
 # ================================================================
 
+# IMPORTANT:
+# This script produces scaled M-values for ML / PCA only.
+# DO NOT use its output for IDOL, deconvolution, or biological interpretation.
+
 if (!endsWith(getwd(), "R/projects/r-methylation-analysis")) {
   setwd("R/projects/r-methylation-analysis")
 }
@@ -26,6 +30,9 @@ probe_sd <- rowSds(mval_matrix, na.rm = TRUE)
 
 # Count non-NA values per probe
 probe_n <- rowCounts(mval_matrix, value = NA, invert = TRUE)
+
+# Treat NA SD as zero-variance
+probe_sd[is.na(probe_sd)] <- 0
 
 # Keep probes with:
 #  - positive variance

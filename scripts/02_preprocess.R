@@ -43,6 +43,19 @@ saveRDS(targets, file.path(OUT_PROC_DIR, "targets_with_sesame.rds"))
 rm(targets, batch_index)
 gc()
 
+# EPICv2 manifest
+gr_epicv2 <- sesameData_getManifestGRanges("EPICv2")
+
+# Keep only CpG probes
+epicv2_cpgs <- names(gr_epicv2)[
+  grepl("^cg", names(gr_epicv2))
+]
+
+rm(gr_epicv2)
+gc()
+
+message("EPICv2 CpGs available: ", length(epicv2_cpgs))
+
 message("Total samples: ", n)
 message("Batch size: ", BATCH_SIZE)
 message("Total batches: ", length(batches))
@@ -50,80 +63,84 @@ message("Total batches: ", length(batches))
 # ------------------------------------------------------------
 # Function to process one batch
 # ------------------------------------------------------------
-process_batch <- function(batch_targets, batch_id) {
+process_batch <- function(batch_targets, batch_id, epicv2_cpgs) {
   
   message("\n========== Processing batch ", batch_id, " ==========")
   
-  beta_list <- list()
-  mval_list <- list()
+  beta_list     <- list()
   mval_raw_list <- list()
-  mask_list <- list()
-  
+
   for (i in seq_len(nrow(batch_targets))) {
     
     basename  <- batch_targets$Basename[i]
-    sample_id <- batch_targets$sample_name[i]
+    sample_id <- batch_targets$Patient[i]
     
-    message("[Batch ", batch_id, "] Sample ", i, "/", nrow(batch_targets),
-            ": ", sample_id)
+    message(
+      "[Batch ", batch_id, "] Sample ", i, "/", nrow(batch_targets),
+      ": ", sample_id
+    )
     
+    # ------------------------------------------------------------
+    # Read + preprocess IDAT
+    # ------------------------------------------------------------
     sdf <- sesame::readIDATpair(basename, verbose = FALSE)
     sdf <- sesame::prepSesame(sdf)
     
+    # ------------------------------------------------------------
+    # Extract beta values
+    # ------------------------------------------------------------
     betas <- sesame::getBetas(sdf)
-    mval_raw <- sesame::BetaValueToMValue(betas)
     
-    qc <- sesame::sesameQC_calcStats(sdf)
-    qc_df <- sesame::sesameQCtoDF(qc)
+    # ------------------------------------------------------------
+    # Restrict to EPICv2-recommended CpGs
+    # ------------------------------------------------------------
+    keep_cpgs <- intersect(names(betas), epicv2_cpgs)
     
-    mask <- qc_df$good & grepl("^cg", qc_df$probe_id)
-    names(mask) <- qc_df$probe_id
+    betas_epicv2 <- betas[keep_cpgs]
     
-    betas_masked <- betas
-    betas_masked[!mask] <- NA
-    mval_masked <- sesame::BetaValueToMValue(betas_masked)
+    # ------------------------------------------------------------
+    # Convert to M-values
+    # ------------------------------------------------------------
+    mval_raw_epicv2 <- sesame::BetaValueToMValue(betas[keep_cpgs])
     
-    beta_list[[sample_id]] <- betas_masked
-    mval_list[[sample_id]] <- mval_masked
-    mval_raw_list[[sample_id]] <- mval_raw
-    mask_list[[sample_id]] <- mask
-    
-    rm(sdf, betas, qc, qc_df, mask, betas_masked, mval_masked, mval_raw)
+    # ------------------------------------------------------------
+    # Store
+    # ------------------------------------------------------------
+    beta_list[[sample_id]]     <- betas_epicv2
+    mval_raw_list[[sample_id]] <- mval_raw_epicv2
+
+    rm(sdf, betas, betas_epicv2, mval_raw_epicv2)
     gc(verbose = FALSE)
   }
   
   message("Saving batch ", batch_id)
   
-  qsave(beta_list, file.path(OUT_BATCH_DIR, sprintf("g_beta_batch_%03d.qs", batch_id)), preset="balanced")
-  qsave(mval_list, file.path(OUT_BATCH_DIR, sprintf("g_mval_batch_%03d.qs", batch_id)), preset="balanced")
-  qsave(mval_raw_list, file.path(OUT_BATCH_DIR, sprintf("g_mval_raw_batch_%03d.qs", batch_id)), preset="balanced")
-  qsave(mask_list, file.path(OUT_BATCH_DIR, sprintf("g_mask_batch_%03d.qs", batch_id)), preset="balanced")
+  qsave(beta_list, file.path(OUT_BATCH_DIR, sprintf("g_beta_batch_%03d.qs", batch_id)), preset = "balanced")
+  qsave(mval_raw_list, file.path(OUT_BATCH_DIR, sprintf("g_mval_raw_batch_%03d.qs", batch_id)), preset = "balanced")
   
-  rm(beta_list, mval_list, mval_raw_list, mask_list)
+  rm(beta_list, mval_raw_list)
   gc(verbose = FALSE)
   
   message("Batch ", batch_id, " saved.")
 }
-
 
 # ------------------------------------------------------------
 # Run all batches (skip already processed)
 # ------------------------------------------------------------
 for (b in seq_along(batches)) {
   beta_file <- file.path(OUT_BATCH_DIR, sprintf("g_beta_batch_%03d.qs", b))
-  mval_file <- file.path(OUT_BATCH_DIR, sprintf("g_mval_batch_%03d.qs", b))
   mval_raw_file <- file.path(OUT_BATCH_DIR, sprintf("g_mval_raw_batch_%03d.qs", b))
   mask_file <- file.path(OUT_BATCH_DIR, sprintf("g_mask_batch_%03d.qs", b))
   
-  if (file.exists(beta_file) && file.exists(mval_file)) {
+  if (file.exists(beta_file) && file.exists(mval_raw_file) && file.exists(mask_file)) {
     message("Skipping batch ", b, " (already exists)")
     next
   }
   
-  process_batch(batches[[b]], b)
+  process_batch(batches[[b]], b, epicv2_cpgs)
 }
 
-rm(batches, beta_file, mval_file)
+rm(batches, beta_file, mval_file, mask_file)
 gc()
 
 # ============================================================
@@ -183,53 +200,7 @@ colnames(mval_raw_matrix) <- sample_ids
 rownames(mval_raw_matrix) <- all_probes
 saveRDS(mval_raw_matrix, file.path(OUT_PROC_DIR, "mval_matrix_raw_sesame.rds"))
 
-rm(mval_raw_matrix)
-gc()
-
-message("Building M-value matrix...")
-mval_files <- list.files(OUT_BATCH_DIR, pattern = "^g_mval_batch_.*qs$", full.names = TRUE)
-mval_all <- list()
-for (f in mval_files) {
-  message("Loading ", f)
-  mval_all <- c(mval_all, qread(f))
-}
-rm(mval_files)
-gc()
-
-mval_matrix <- do.call(cbind, lapply(mval_all, function(x) x[all_probes]))
-rm(mval_all)
-gc()
-
-colnames(mval_matrix) <- sample_ids
-rownames(mval_matrix) <- all_probes
-saveRDS(mval_matrix, file.path(OUT_PROC_DIR, "mval_matrix_sesame.rds"))
-rm(mval_matrix, sample_ids)
-gc()
-
-message("Building mask matrix...")
-
-mask_files <- list.files(OUT_BATCH_DIR, pattern = "^g_mask_batch_.*qs$", full.names = TRUE)
-
-mask_all <- list()
-for (f in mask_files) {
-  message("Loading ", f)
-  mask_all <- c(mask_all, qread(f))
-}
-rm(mask_files)
-gc()
-
-# Build matrix
-mask_matrix <- do.call(cbind, lapply(mask_all, function(x) {
-  v <- x[all_probes]
-  v[is.na(v)] <- FALSE
-  as.integer(v)
-}))
-
-colnames(mask_matrix) <- names(mask_all)
-rownames(mask_matrix) <- all_probes
-saveRDS(mask_matrix, file.path(OUT_PROC_DIR, "mask_matrix_sesame.rds"))
-
-rm(mask_all, mask_matrix, all_probes)
+rm(mval_raw_matrix, sample_ids, all_probes)
 gc()
 
 message("Preprocessing completed successfully.")

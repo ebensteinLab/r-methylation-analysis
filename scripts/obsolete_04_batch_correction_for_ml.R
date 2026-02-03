@@ -26,7 +26,7 @@ message("Number of rows in targets: ", nrow(targets))
 # ------------------------------------------------
 
 mval_samples    <- colnames(mval)
-target_samples  <- targets$sample_name
+target_samples  <- targets$Patient
 
 missing_in_targets <- setdiff(mval_samples, target_samples)
 missing_in_mval    <- setdiff(target_samples, mval_samples)
@@ -48,7 +48,7 @@ if (length(missing_in_targets) > 0 || length(missing_in_mval) > 0) {
   stop("Sample names in mval matrix do not match targets table.")
 }
 
-targets <- targets[match(colnames(mval), targets$sample_name), ]
+targets <- targets[match(colnames(mval), targets$Patient), ]
 
 # ------------------------------------------------
 # Define batch variable: targets$Sentrix_Id
@@ -102,7 +102,7 @@ if (nlevels(batch) < 2) {
     rm(X, Xc); gc()
   }
   combat_ran <- TRUE
-  rm(gr, chr, names)
+  rm(gr, chr, idx)
 }
 
 rm(mval, mod, batch)
@@ -114,15 +114,16 @@ gc()
 
 message("Saving outputs")
 
-mask <- readRDS("results/processed/mask_matrix_sesame.rds")
-mval_corrected[!mask, ] <- NA
+mask_full <- readRDS("results/processed/mask_matrix_sesame.rds")
+mask <- mask_full[rownames(mval_corrected), , drop = FALSE]
+mval_corrected[mask == 0] <- NA
 
 saveRDS(mval_corrected, "results/processed/mval_matrix_sesame_batch_corrected.rds")
 
 # Convert corrected M-values back to betas
 beta_corrected <- MValueToBetaValue(mval_corrected)
 
-rm(mval_corrected, mask)
+rm(mval_corrected, mask, mask_full)
 gc()
 
 saveRDS(beta_corrected, "results/processed/beta_matrix_sesame_batch_corrected.rds")

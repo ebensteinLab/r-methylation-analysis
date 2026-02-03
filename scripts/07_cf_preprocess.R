@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 
 # ================================================================
-# Script 09: SeSAMe preprocessing in batches + final merge
+# Script 07: SeSAMe preprocessing in batches + final merge
 # ================================================================
 
 if (!endsWith(getwd(), "R/projects/r-methylation-analysis")) {
@@ -56,8 +56,7 @@ process_batch <- function(batch_cf_targets, batch_id) {
   
   beta_list <- list()
   mval_raw_list <- list()
-  mask_list <- list()
-  
+
   for (i in seq_len(nrow(batch_cf_targets))) {
     
     basename  <- batch_cf_targets$Basename[i]
@@ -72,20 +71,10 @@ process_batch <- function(batch_cf_targets, batch_id) {
     betas <- sesame::getBetas(sdf)
     mval_raw <- sesame::BetaValueToMValue(betas)
     
-    qc <- sesame::sesameQC_calcStats(sdf)
-    qc_df <- sesame::sesameQCtoDF(qc)
-    
-    mask <- qc_df$good & grepl("^cg", qc_df$probe_id)
-    names(mask) <- qc_df$probe_id
-    
-    betas_masked <- betas
-    betas_masked[!mask] <- NA
-
-    beta_list[[sample_id]] <- betas_masked
+    beta_list[[sample_id]] <- betas
     mval_raw_list[[sample_id]] <- mval_raw
-    mask_list[[sample_id]] <- mask
-    
-    rm(sdf, betas, qc, qc_df, mask, betas_masked, mval_raw)
+
+    rm(sdf, betas, mval_raw)
     gc(verbose = FALSE)
   }
   
@@ -93,9 +82,8 @@ process_batch <- function(batch_cf_targets, batch_id) {
   
   qsave(beta_list, file.path(OUT_BATCH_DIR, sprintf("cf_beta_batch_%03d.qs", batch_id)), preset="balanced")
   qsave(mval_raw_list, file.path(OUT_BATCH_DIR, sprintf("cf_mval_raw_batch_%03d.qs", batch_id)), preset="balanced")
-  qsave(mask_list, file.path(OUT_BATCH_DIR, sprintf("cf_mask_batch_%03d.qs", batch_id)), preset="balanced")
-  
-  rm(beta_list, mval_raw_list, mask_list)
+
+  rm(beta_list, mval_raw_list)
   gc(verbose = FALSE)
   
   message("Batch ", batch_id, " saved.")
@@ -108,9 +96,8 @@ process_batch <- function(batch_cf_targets, batch_id) {
 for (b in seq_along(batches)) {
   beta_file <- file.path(OUT_BATCH_DIR, sprintf("cf_beta_batch_%03d.qs", b))
   mval_raw_file <- file.path(OUT_BATCH_DIR, sprintf("cf_mval_raw_batch_%03d.qs", b))
-  mask_file <- file.path(OUT_BATCH_DIR, sprintf("cf_mask_batch_%03d.qs", b))
-  
-  if (file.exists(beta_file) && file.exists(mval_raw_file) && file.exists(mask_file)) {
+
+  if (file.exists(beta_file) && file.exists(mval_raw_file)) {
     message("Skipping batch ", b, " (already exists)")
     next
   }
@@ -118,7 +105,7 @@ for (b in seq_along(batches)) {
   process_batch(batches[[b]], b)
 }
 
-rm(batches, beta_file, mval_file)
+rm(batches, beta_file, mval_raw_file)
 gc()
 
 # ============================================================
@@ -129,7 +116,6 @@ message("\n========== Merging batches ==========")
 
 beta_files     <- list.files(OUT_BATCH_DIR, pattern="^cf_beta_batch_.*\\.qs$", full.names=TRUE)
 mval_raw_files <- list.files(OUT_BATCH_DIR, pattern="^cf_mval_raw_batch_.*\\.qs$", full.names=TRUE)
-mask_files     <- list.files(OUT_BATCH_DIR, pattern="^cf_mask_batch_.*\\.qs$", full.names=TRUE)
 
 # ---- Find common probes per batch ----
 probe_sets <- lapply(beta_files, function(f) {
@@ -145,6 +131,27 @@ message("Common probes: ", length(all_probes))
 rm(probe_sets)
 gc()
 
+# ---- Build BETA matrix incrementally ----
+sample_ids <- c()
+beta_matrix <- matrix(NA, nrow = length(all_probes), ncol = 0,
+                      dimnames = list(all_probes, NULL))
+
+for (f in beta_files) {
+  batch <- qread(f)
+  for (sid in names(batch)) {
+    sample_ids <- c(sample_ids, sid)
+    vec <- batch[[sid]][all_probes]
+    beta_matrix <- cbind(beta_matrix, vec)
+  }
+  rm(batch)
+  gc()
+}
+
+colnames(beta_matrix) <- sample_ids
+saveRDS(beta_matrix, file.path(OUT_PROC_DIR, "cf_beta_matrix_sesame.rds"))
+rm(beta_matrix)
+gc()
+
 # ---- Build RAW M-value matrix incrementally ----
 sample_ids <- c()
 mval_raw_matrix <- matrix(NA, nrow=length(all_probes), ncol=0,
@@ -157,32 +164,13 @@ for (f in mval_raw_files) {
     vec <- batch[[sid]][all_probes]
     mval_raw_matrix <- cbind(mval_raw_matrix, vec)
   }
-  rm(batch); gc()
+  rm(batch)
+  gc()
 }
 
 colnames(mval_raw_matrix) <- sample_ids
 saveRDS(mval_raw_matrix, file.path(OUT_PROC_DIR, "cf_mval_matrix_raw_sesame.rds"))
-rm(mval_raw_matrix); gc()
-
-# ---- Build MASK matrix incrementally ----
-mask_matrix <- matrix(FALSE, nrow=length(all_probes), ncol=0,
-                      dimnames=list(all_probes, NULL))
-
-sample_ids <- c()
-
-for (f in mask_files) {
-  batch <- qread(f)
-  for (sid in names(batch)) {
-    sample_ids <- c(sample_ids, sid)
-    vec <- batch[[sid]][all_probes]
-    vec[is.na(vec)] <- FALSE
-    mask_matrix <- cbind(mask_matrix, vec)
-  }
-  rm(batch); gc()
-}
-
-colnames(mask_matrix) <- sample_ids
-saveRDS(mask_matrix, file.path(OUT_PROC_DIR, "cf_mask_matrix_sesame.rds"))
-rm(mask_matrix, all_probes); gc()
+rm(mval_raw_matrix, all_probes)
+gc()
 
 message("Preprocessing completed successfully.")

@@ -77,6 +77,7 @@ cran_pkgs <- c(
   "matrixStats",
   "ggplot2",
   "RColorBrewer",
+  "nnls",
   "remotes"     # used for GitHub fallback installs
 )
 
