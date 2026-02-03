@@ -97,7 +97,16 @@ out_rds <- "results/deconvolution/blood_cell_fractions_idol_genomic_batch_correc
 out_csv <- "results/deconvolution/blood_cell_fractions_idol_genomic_batch_corrected.csv"
 
 saveRDS(fractions_corrected_df, out_rds)
-write.csv(fractions_corrected_df, out_csv, row.names = FALSE)
+
+# ------------------------------------------------
+# Round numeric columns for CSV output (5 digits)
+# ------------------------------------------------
+fractions_corrected_csv <- fractions_corrected_df
+
+num_cols <- sapply(fractions_corrected_csv, is.numeric)
+fractions_corrected_csv[, num_cols] <-
+  round(fractions_corrected_csv[, num_cols], 5)
+write.csv(fractions_corrected_csv, out_csv, row.names = FALSE)
 
 message("Saved batch-corrected fractions to:")
 message(out_rds)
