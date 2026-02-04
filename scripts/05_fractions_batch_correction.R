@@ -10,9 +10,12 @@ if (!endsWith(getwd(), "R/projects/r-methylation-analysis")) {
 
 suppressPackageStartupMessages({
   library(sva)
+  library(compositions)
 })
 
 message("Loading deconvolution results...")
+
+epsilon <- 1e-6
 
 # ------------------------------------------------
 # Load inputs
@@ -66,15 +69,20 @@ if (nlevels(batch) < 2) {
   # No biological covariates here
   mod <- model.matrix(~ 1, data = targets)
   
+  fractions_clr <- clr(fractions + epsilon)
+  
   message("Running ComBat on fraction matrix...")
-  fractions_corrected <- ComBat(
-    dat = t(fractions),   # ComBat expects features x samples
+  fractions_clr_corrected <- ComBat(
+    dat = t(fractions_clr),
     batch = batch,
     mod = mod,
     par.prior = TRUE
   )
   
-  fractions_corrected <- t(fractions_corrected)
+  fractions_clr_corrected <- t(fractions_clr_corrected)
+  fractions_corrected <- exp(fractions_clr_corrected)
+  fractions_corrected <- fractions_corrected / rowSums(fractions_corrected)
+  
   combat_ran <- TRUE
 }
 

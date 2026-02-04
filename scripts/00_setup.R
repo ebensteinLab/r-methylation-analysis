@@ -78,6 +78,7 @@ cran_pkgs <- c(
   "ggplot2",
   "RColorBrewer",
   "nnls",
+  "compositions",
   "remotes"     # used for GitHub fallback installs
 )
 

@@ -1,6 +1,10 @@
 # r-methylation-analysis
 R analysis pipeline of methylation data
 
+Run these commands:
+sudo apt update
+sudo apt install build-essential libgsl-dev
+
 Before openning RStudio, create file \~/.Rprofile, and paste the following lines in it:
 
 <pre>
