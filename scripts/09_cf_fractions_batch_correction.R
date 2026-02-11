@@ -11,78 +11,121 @@ if (!endsWith(getwd(), "R/projects/r-methylation-analysis")) {
 }
 
 suppressPackageStartupMessages({
-  library(data.table)
+  library(sva)
+  library(compositions)
 })
 
-IN_FILE  <- "results/deconvolution/cell_fractions_idol_nnls.rds"
-OUT_DIR  <- "results/deconvolution"
-OUT_FILE <- file.path(OUT_DIR, "cell_fractions_idol_nnls_batch_corrected.rds")
-
-dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
-
 message("Loading deconvolution results...")
-df <- readRDS(IN_FILE)
 
-stopifnot("Patient" %in% colnames(df))
-stopifnot("Sentrix_Id" %in% colnames(df))
+epsilon <- 1e-6
 
-batch <- factor(df$Sentrix_Id)
+# ------------------------------------------------
+# Load inputs
+# ------------------------------------------------
+fractions_df <- readRDS("results/deconvolution/blood_cell_fractions_idol_cellfree.rds")
+targets <- readRDS("results/processed/cf_targets_merged.rds")
 
-# Identify fraction columns
-fraction_cols <- setdiff(
-  colnames(df),
-  c("Patient", "Sentrix_Id", "Disease")
+# ------------------------------------------------
+# Sanity checks
+# ------------------------------------------------
+stopifnot(
+  "Patient" %in% colnames(fractions_df),
+  "Sentrix_Id" %in% colnames(targets)
 )
 
-message("Cell types: ", paste(fraction_cols, collapse = ", "))
-message("Batches: ", nlevels(batch))
+# Align targets to fractions
+targets <- targets[match(fractions_df$Patient, targets$Patient),]
 
-corrected <- df
+stopifnot(identical(fractions_df$Patient, targets$Patient))
 
-# ------------------------------------------------------------
-# Batch correction via linear models (per cell type)
-# ------------------------------------------------------------
-for (ct in fraction_cols) {
-  
-  y <- df[[ct]]
-  
-  # Skip if constant
-  if (sd(y, na.rm = TRUE) == 0) {
-    message("Skipping ", ct, " (no variance)")
-    next
-  }
-  
-  # Linear model
-  fit <- lm(y ~ batch)
-  
-  # Residuals + global mean
-  corrected[[ct]] <- residuals(fit) + mean(y, na.rm = TRUE)
+# ------------------------------------------------
+# Extract fraction matrix
+# ------------------------------------------------
+fraction_cols <- setdiff(
+  colnames(fractions_df),
+  c("Patient", "Disease")
+)
+
+fractions <- as.matrix(fractions_df[, fraction_cols])
+rownames(fractions) <- fractions_df$Patient
+
+stopifnot(is.numeric(fractions))
+
+# ------------------------------------------------
+# Define batch variable
+# ------------------------------------------------
+batch <- as.factor(targets$Sentrix_Id)
+
+if (anyNA(batch)) {
+  stop("Batch variable (Sentrix_Id) contains NA values.")
 }
 
-# ------------------------------------------------------------
-# Post-processing: enforce constraints
-# ------------------------------------------------------------
+message("Batch levels: ", paste(levels(batch), collapse = ", "))
 
-# No negatives
-corrected[fraction_cols] <- lapply(
-  corrected[fraction_cols],
-  function(x) pmax(x, 0)
+if (nlevels(batch) < 2) {
+  warning("Only one batch detected; skipping ComBat.")
+  fractions_corrected <- fractions
+  combat_ran <- FALSE
+} else {
+  # No biological covariates here
+  mod <- model.matrix(~ 1, data = targets)
+  
+  fractions_clr <- clr(fractions + epsilon)
+  
+  message("Running ComBat on fraction matrix...")
+  fractions_clr_corrected <- ComBat(
+    dat = t(fractions_clr),
+    batch = batch,
+    mod = mod,
+    par.prior = TRUE
+  )
+  
+  fractions_clr_corrected <- t(fractions_clr_corrected)
+  fractions_corrected <- exp(fractions_clr_corrected)
+  fractions_corrected <- fractions_corrected / rowSums(fractions_corrected)
+  
+  combat_ran <- TRUE
+}
+
+# ------------------------------------------------
+# Reassemble output
+# ------------------------------------------------
+fractions_corrected_df <- cbind(
+  fractions_df[, c("Patient"), drop = FALSE],
+  as.data.frame(fractions_corrected)
 )
 
-# Renormalize to sum = 1
-row_sums <- rowSums(corrected[fraction_cols])
-row_sums[row_sums == 0] <- 1
+if ("Disease" %in% colnames(fractions_df)) {
+  fractions_corrected_df$Disease <- fractions_df$Disease
+}
 
-corrected[fraction_cols] <- corrected[fraction_cols] / row_sums
+# ------------------------------------------------
+# Save outputs
+# ------------------------------------------------
+out_rds <- "results/deconvolution/blood_cell_fractions_idol_cellfree_batch_corrected.rds"
+out_csv <- "results/deconvolution/blood_cell_fractions_idol_cellfree_batch_corrected.csv"
 
-# ------------------------------------------------------------
-# Save
-# ------------------------------------------------------------
-saveRDS(corrected, OUT_FILE)
+saveRDS(fractions_corrected_df, out_rds)
 
-csv_out <- sub("\\.rds$", ".csv", OUT_FILE)
-fwrite(corrected, csv_out)
+# ------------------------------------------------
+# Round numeric columns for CSV output (5 digits)
+# ------------------------------------------------
+fractions_corrected_csv <- fractions_corrected_df
 
-message("Saved batch-corrected fractions:")
-message(" - ", OUT_FILE)
-message(" - ", csv_out)
+num_cols <- sapply(fractions_corrected_csv, is.numeric)
+fractions_corrected_csv[, num_cols] <-
+  round(fractions_corrected_csv[, num_cols], 5)
+write.csv(fractions_corrected_csv, out_csv, row.names = FALSE)
+
+message("Saved batch-corrected fractions to:")
+message(out_rds)
+message(out_csv)
+
+if (combat_ran) {
+  message("Batch correction completed successfully.")
+} else {
+  message("Batch correction skipped (single batch).")
+}
+
+rm(fractions, fractions_corrected, fractions_df, targets)
+gc()

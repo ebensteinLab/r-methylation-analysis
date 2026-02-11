@@ -164,7 +164,7 @@ for (f in mval_raw_files) {
     vec <- batch[[sid]][all_probes]
     mval_raw_matrix <- cbind(mval_raw_matrix, vec)
   }
-  rm(batch)
+  rm(batch, vec)
   gc()
 }
 
