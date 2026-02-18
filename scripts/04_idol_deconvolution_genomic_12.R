@@ -26,8 +26,8 @@ message("Bulk beta rowname example: ", rownames(beta)[1])
 # ------------------------------------------------
 # Load IDOL outputs (EPICv2 space)
 # ------------------------------------------------
-idol_probes <- readRDS("results/processed/idol_cpgs_epicv2.rds")
-ref_beta_centroids <- readRDS("results/processed/ref_beta_epicv2_centroids.rds")
+idol_probes <- readRDS("results/processed/idol_cpgs_epicv2_12.rds")
+ref_beta_centroids <- readRDS("results/processed/ref_beta_epicv2_centroids_12.rds")
 
 message("IDOL probes (EPICv2): ", length(idol_probes))
 message("Reference cell types: ", paste(colnames(ref_beta_centroids), collapse = ", "))
@@ -73,7 +73,7 @@ if (length(dropped_samples) > 0) {
   print(dropped_samples)
 }
 
-write.csv(data.frame(Patient = dropped_samples), "results/deconvolution/excluded_samples_high_na.csv", row.names = FALSE)
+write.csv(data.frame(Patient = dropped_samples), "results/deconvolution/excluded_samples_high_na_12.csv", row.names = FALSE)
 
 beta_idol <- beta_idol[, keep_samples, drop = FALSE]
 targets   <- targets[match(colnames(beta_idol), targets$Patient), ]
@@ -120,14 +120,14 @@ fractions_df$Disease <- substr(fractions_df$Patient, 6, nchar(fractions_df$Patie
 # ------------------------------------------------
 # Save
 # ------------------------------------------------
-out_file <- "results/deconvolution/blood_cell_fractions_idol_genomic.rds"
+out_file <- "results/deconvolution/blood_cell_fractions_idol_genomic_12.rds"
 saveRDS(fractions_df, out_file)
 
 fractions_df_rounded <- fractions_df
 num_cols <- sapply(fractions_df_rounded, is.numeric)
 fractions_df_rounded[, num_cols] <- round(fractions_df_rounded[, num_cols], 5)
 
-csv_file <- "results/deconvolution/blood_cell_fractions_idol_genomic.csv"
+csv_file <- "results/deconvolution/blood_cell_fractions_idol_genomic_12.csv"
 write.csv(fractions_df_rounded, file = csv_file, row.names = FALSE)
 
 message("Saved deconvolution results to:")

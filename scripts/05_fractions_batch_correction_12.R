@@ -20,7 +20,7 @@ epsilon <- 1e-6
 # ------------------------------------------------
 # Load inputs
 # ------------------------------------------------
-fractions_df <- readRDS("results/deconvolution/blood_cell_fractions_idol_genomic.rds")
+fractions_df <- readRDS("results/deconvolution/blood_cell_fractions_idol_genomic_12.rds")
 
 targets <- readRDS("results/processed/targets_with_sesame.rds")
 
@@ -101,8 +101,8 @@ if ("Disease" %in% colnames(fractions_df)) {
 # ------------------------------------------------
 # Save outputs
 # ------------------------------------------------
-out_rds <- "results/deconvolution/blood_cell_fractions_idol_genomic_batch_corrected.rds"
-out_csv <- "results/deconvolution/blood_cell_fractions_idol_genomic_batch_corrected.csv"
+out_rds <- "results/deconvolution/blood_cell_fractions_idol_genomic_batch_corrected_12.rds"
+out_csv <- "results/deconvolution/blood_cell_fractions_idol_genomic_batch_corrected_12.csv"
 
 saveRDS(fractions_corrected_df, out_rds)
 

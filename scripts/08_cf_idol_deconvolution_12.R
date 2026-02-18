@@ -90,8 +90,8 @@ solve_fractions_nnls <- function(Y, R, min_probes = 50) {
 # ------------------------------------------------------------
 # 1) Load inputs
 # ------------------------------------------------------------
-idol_file <- file.path(OUT_PROC_DIR, "idol_cpgs_shared_cg.rds")
-ref_centroids_file <- file.path(OUT_PROC_DIR, "ref_beta_shared_centroids_cg.rds")
+idol_file <- file.path(OUT_PROC_DIR, "idol_cpgs_shared_cg_12.rds")
+ref_centroids_file <- file.path(OUT_PROC_DIR, "ref_beta_shared_centroids_cg_12.rds")
 
 beta_file <- file.path(OUT_PROC_DIR, "cf_beta_matrix_sesame.rds")
 
@@ -157,8 +157,8 @@ fractions_df$Patient <- rownames(fractions_df)
 # derive Disease from Patient (ignore first 5 chars)
 fractions_df$Disease <- substr(fractions_df$Patient, 6, nchar(fractions_df$Patient))
 
-out_rds <- file.path(OUT_RES_DIR, "blood_cell_fractions_idol_cellfree.rds")
-out_csv <- file.path(OUT_RES_DIR, "blood_cell_fractions_idol_cellfree.csv")
+out_rds <- file.path(OUT_RES_DIR, "blood_cell_fractions_idol_cellfree_12.rds")
+out_csv <- file.path(OUT_RES_DIR, "blood_cell_fractions_idol_cellfree_12.csv")
 
 saveRDS(fractions_df, out_rds)
 # Round numeric columns to 5 digits
@@ -173,6 +173,6 @@ message(" - ", out_rds)
 message(" - ", out_csv)
 
 # Also save a wide matrix (celltypes x samples) for downstream math
-out_mat <- file.path(OUT_RES_DIR, "cell_fractions_idol_nnls_matrix.rds")
+out_mat <- file.path(OUT_RES_DIR, "cell_fractions_idol_nnls_matrix_12.rds")
 saveRDS(fractions, out_mat)
 message(" - ", out_mat)

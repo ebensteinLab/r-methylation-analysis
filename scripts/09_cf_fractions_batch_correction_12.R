@@ -1,8 +1,10 @@
 #!/usr/bin/env Rscript
 
-# ================================================================
-# Script 05: Batch correction of IDOL deconvolution fractions
-# ================================================================
+# ============================================================
+# 09_cf_fractions_batch_correction.R
+# Batch correction of cell fractions using per-cell-type
+# linear models
+# ============================================================
 
 if (!endsWith(getwd(), "R/projects/r-methylation-analysis")) {
   setwd("R/projects/r-methylation-analysis")
@@ -20,9 +22,8 @@ epsilon <- 1e-6
 # ------------------------------------------------
 # Load inputs
 # ------------------------------------------------
-fractions_df <- readRDS("results/deconvolution/blood_cell_fractions_idol_genomic.rds")
-
-targets <- readRDS("results/processed/targets_with_sesame.rds")
+fractions_df <- readRDS("results/deconvolution/blood_cell_fractions_idol_cellfree_12.rds")
+targets <- readRDS("results/processed/cf_targets_merged.rds")
 
 # ------------------------------------------------
 # Sanity checks
@@ -101,8 +102,8 @@ if ("Disease" %in% colnames(fractions_df)) {
 # ------------------------------------------------
 # Save outputs
 # ------------------------------------------------
-out_rds <- "results/deconvolution/blood_cell_fractions_idol_genomic_batch_corrected.rds"
-out_csv <- "results/deconvolution/blood_cell_fractions_idol_genomic_batch_corrected.csv"
+out_rds <- "results/deconvolution/blood_cell_fractions_idol_cellfree_batch_corrected_12.rds"
+out_csv <- "results/deconvolution/blood_cell_fractions_idol_cellfree_batch_corrected_12.csv"
 
 saveRDS(fractions_corrected_df, out_rds)
 
