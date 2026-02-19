@@ -140,7 +140,7 @@ for (b in seq_along(batches)) {
   process_batch(batches[[b]], b, epicv2_cpgs)
 }
 
-rm(batches, beta_file, mval_file, mask_file)
+rm(batches, beta_file, mask_file)
 gc()
 
 # ============================================================

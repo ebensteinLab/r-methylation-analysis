@@ -24,6 +24,7 @@ suppressPackageStartupMessages({
 })
 
 options(ExperimentHub.ask = FALSE)
+options(AnnotationHub.ask = FALSE)
 set.seed(1)
 
 OUT_PROC_DIR <- "results/processed"

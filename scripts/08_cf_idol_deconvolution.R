@@ -155,7 +155,7 @@ stopifnot(
 fractions_df <- as.data.frame(t(fractions))
 fractions_df$Patient <- rownames(fractions_df)
 # derive Disease from Patient (ignore first 5 chars)
-fractions_df$Disease <- substr(fractions_df$Patient, 6, nchar(fractions_df$Patient))
+fractions_df$Disease <- substr(fractions_df$Patient, 6, pmin(nchar(fractions_df$Patient), 8))
 
 out_rds <- file.path(OUT_RES_DIR, "blood_cell_fractions_idol_cellfree.rds")
 out_csv <- file.path(OUT_RES_DIR, "blood_cell_fractions_idol_cellfree.csv")
