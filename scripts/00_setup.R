@@ -39,7 +39,7 @@ install_bioc_if_missing <- function(pkgs) {
   for (pkg in pkgs) {
     if (!requireNamespace(pkg, quietly = TRUE)) {
       message(sprintf("Installing Bioconductor package: %s", pkg))
-      BiocManager::install(pkg, ask = FALSE, update = TRUE)
+      BiocManager::install(pkg, ask = FALSE, update = FALSE)
     } else {
       message(sprintf("Bioc package already installed: %s", pkg))
     }
@@ -100,8 +100,7 @@ bioc_pkgs <- c(
 install_bioc_if_missing(bioc_pkgs)
 
 plot_pkgs <- c(
-  "pheatmap",
-  "ggrotify"
+  "pheatmap"
 )
 
 install_bioc_if_missing(plot_pkgs)
@@ -111,8 +110,8 @@ install_bioc_if_missing(plot_pkgs)
 # -----------------------------
 message("Installing SeSAMe from Bioconductor...")
 try({
-  BiocManager::install("sesame", ask = FALSE, update = TRUE)
-  BiocManager::install("sesameData", ask = FALSE, update = TRUE)
+  BiocManager::install("sesame", ask = FALSE, update = FALSE, force = TRUE)
+  BiocManager::install("sesameData", ask = FALSE, update = FALSE, force = TRUE)
 }, silent = TRUE)
 
 

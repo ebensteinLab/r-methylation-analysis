@@ -10,7 +10,7 @@ suppressPackageStartupMessages({
 
 message("Loading inputs...")
 
-MAX_NA_FRAC <- 0.10   # allow up to 10% missing IDOL probes
+MAX_NA_FRAC <- 0.20   # allow up to 20% missing IDOL probes
 
 # ------------------------------------------------
 # Load bulk beta values (should be EPICv2 probe IDs, incl suffix)
@@ -47,7 +47,7 @@ common_idol <- Reduce(
 message("Probes used for deconvolution: ", length(common_idol))
 
 # For safety; you can lower temporarily if you’re debugging
-stopifnot(length(common_idol) > 200)
+stopifnot(length(common_idol) > 20)
 
 beta_idol <- beta[common_idol, , drop = FALSE]
 

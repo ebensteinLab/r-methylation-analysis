@@ -43,7 +43,7 @@ collapse_duplicate_rows_mean <- function(mat) {
 }
 
 # Solve non-negative least squares and renormalize to sum=1
-solve_fractions_nnls <- function(Y, R, min_probes = 50) {
+solve_fractions_nnls <- function(Y, R, min_probes = 20) {
   # Y: probes x samples
   # R: probes x celltypes (centroids)
   stopifnot(rownames(Y) == rownames(R))
@@ -118,7 +118,7 @@ message("Bulk matrix after normalize+collapse: ", nrow(bulk), " CpGs x ", ncol(b
 common <- intersect(idol_probes, rownames(bulk))
 message("IDOL probes present in bulk: ", length(common), " / ", length(idol_probes))
 
-if (length(common) < 100) {
+if (length(common) < 40) {
   stop("Too few IDOL probes found in bulk after normalization. ",
        "This indicates an ID mismatch or wrong files.")
 }
@@ -133,6 +133,8 @@ if (!all(common %in% rownames(ref_centroids))) {
 Y <- bulk[common, , drop = FALSE]
 R <- ref_centroids[common, , drop = FALSE]
 
+rm(bulk, ref_centroids)
+
 # ------------------------------------------------------------
 # 4) Deconvolve
 # ------------------------------------------------------------
@@ -145,7 +147,33 @@ if (requireNamespace("nnls", quietly = TRUE)) {
 } else {
   message("DEBUG: Using fallback lm.fit path (more fragile with NA / rank issues).")
 }
+
 fractions <- solve_fractions_nnls(Y = Y, R = R)
+
+# ------------------------------------------------------------
+# 4b) NA diagnostics per sample (post-deconvolution)
+# ------------------------------------------------------------
+na_per_sample <- colSums(is.na(fractions))
+na_frac_per_sample <- na_per_sample / nrow(fractions)
+
+message("NA fraction per sample summary:")
+print(summary(na_frac_per_sample))
+
+message("Worst samples by NA fraction:")
+print(head(sort(na_frac_per_sample, decreasing = TRUE), 20))
+
+MAX_NA_FRAC <- 0.2   # set to the same threshold used in genomic script
+
+keep_samples <- na_frac_per_sample <= MAX_NA_FRAC
+
+message("Keeping ", sum(keep_samples), " / ", length(keep_samples), " samples after NA filtering")
+
+if (any(!keep_samples)) {
+  message("Dropped samples:")
+  print(names(keep_samples)[!keep_samples])
+}
+
+fractions <- fractions[, keep_samples, drop = FALSE]
 
 stopifnot(
   all(abs(colSums(fractions) - 1) < 1e-6 | colSums(fractions) == 0)

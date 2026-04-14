@@ -25,7 +25,6 @@ suppressPackageStartupMessages({
 
 options(ExperimentHub.ask = FALSE)
 options(AnnotationHub.ask = FALSE)
-set.seed(1)
 
 OUT_PROC_DIR <- "results/processed"
 dir.create(OUT_PROC_DIR, recursive = TRUE, showWarnings = FALSE)
@@ -56,9 +55,6 @@ bulk_beta <- readRDS(file.path(OUT_PROC_DIR, "beta_matrix_sesame.rds"))
 # Normalize suffix IDs → cg IDs
 bulk_cg <- normalize_sesame_ids(rownames(bulk_beta))
 
-# Build cg → suffix mapping (first occurrence is fine)
-cg_to_full <- tapply(rownames(bulk_beta), bulk_cg, function(v) v[[1]])
-
 # Collapse duplicated cg rows
 rownames(bulk_beta) <- bulk_cg
 bulk_beta <- collapse_duplicate_rows_mean(bulk_beta)
@@ -66,7 +62,7 @@ bulk_beta <- collapse_duplicate_rows_mean(bulk_beta)
 bulk_probe_universe <- rownames(bulk_beta)
 message("Bulk probe universe (cg IDs): ", length(bulk_probe_universe))
 
-rm(bulk_beta)
+rm(bulk_beta, bulk_cg)
 gc()
 
 # ------------------------------------------------------------
@@ -92,13 +88,14 @@ message("Reference CpGs: ", nrow(ref_beta))
 # ------------------------------------------------------------
 common_cg <- intersect(rownames(ref_beta), bulk_probe_universe)
 message("CpGs shared (reference ∩ bulk): ", length(common_cg))
+rm(bulk_probe_universe)
 
 if (length(common_cg) < 50000) {
   stop("Too few shared CpGs (", length(common_cg), "). Check probe IDs.")
 }
 
 ref_beta_shared <- ref_beta[common_cg, , drop = FALSE]
-rm(ref_beta)
+rm(ref_beta, common_cg)
 gc()
 
 message("Training matrix: ", nrow(ref_beta_shared), " CpGs x ", ncol(ref_beta_shared), " samples")
@@ -153,45 +150,59 @@ gc()
 # ------------------------------------------------------------
 # 7) Run IDOL optimization
 # ------------------------------------------------------------
+
+k_values <- seq(100, 200, by = 100)
+seeds <- 1:3
+rmse_results <- data.frame(K = integer(), RMSE = numeric())
+idol_results_list <- list()
+
 message("Running IDOLoptimize...")
-set.seed(1077378658)
-idol_res <- IDOLoptimize(
-  candDMRFinderObject = candFinder,
-  trainingBetas       = ref_beta_shared,
-  trainingCovariates  = trainingCovariates,
-  libSize             = 46,
-  maxIt               = 1000,
-  numCores            = 4
-)
+for (k in k_values) {
+  for (s in seeds) {
+    seed_val <- sample.int(.Machine$integer.max, 1)
+    set.seed(seed_val)
+    message("Running IDOL with K = ", k, " and seed ", seed_val, " ", format(Sys.time(), "%Y-%m-%d %H:%M:%S"))
+    
+    idol_res <- IDOLoptimize(
+      candDMRFinderObject = candFinder,
+      trainingBetas       = ref_beta_shared,
+      trainingCovariates  = trainingCovariates,
+      libSize             = k,
+      maxIt               = 500,
+      numCores            = 4
+    )
+    
+    # Extract RMSE
+    rmse <- NA
+    
+    if ("RMSE" %in% names(idol_res)) {
+      rmse <- idol_res$RMSE
+    } else if ("OptResults" %in% names(idol_res)) {
+      rmse <- min(idol_res$OptResults$RMSE, na.rm = TRUE)
+    }
+    
+    # Store RMSE with seed
+    rmse_results <- rbind(rmse_results, data.frame(K = k, seed = seed_val, RMSE = rmse))
+    
+    # Store full model per (K, seed)
+    if (is.null(idol_results_list[[as.character(k)]])) {
+      idol_results_list[[as.character(k)]] <- list()
+    }
+    
+    idol_results_list[[as.character(k)]][[as.character(s)]] <- idol_res
+    
+    current_min <- min(rmse_results$RMSE, na.rm = TRUE)
+    
+    message("Current global min RMSE: ", signif(current_min, 5))
+    
+    rm(idol_res)
+  }
+}
 
-idol_cg <- idol_res[["IDOL Optimized Library"]]
-message("IDOL selected CpGs (cg IDs): ", length(idol_cg))
+rm(ref_beta_shared, ref_centroids_cg)
 
-# ------------------------------------------------------------
-# 8) Map back to EPICv2 suffix IDs
-# ------------------------------------------------------------
-idol_epicv2 <- unname(cg_to_full[idol_cg])
-idol_epicv2 <- idol_epicv2[!is.na(idol_epicv2)]
+saveRDS(rmse_results, file.path(OUT_PROC_DIR, "idol_k_sweep_rmse.rds"))
+saveRDS(idol_results_list, file.path(OUT_PROC_DIR, "idol_k_sweep_models.rds"))
+write.csv(rmse_results, file = "results/idol/rmse_results_12.csv")
 
-stopifnot(length(idol_epicv2) > 30)
-
-message("IDOL selected CpGs (EPICv2 IDs): ", length(idol_epicv2))
-
-# EPICv2-space centroids
-centroids_epicv2 <- ref_centroids_cg
-rownames(centroids_epicv2) <- unname(cg_to_full[rownames(ref_centroids_cg)])
-centroids_epicv2 <- centroids_epicv2[!is.na(rownames(centroids_epicv2)), , drop = FALSE]
-
-# ------------------------------------------------------------
-# 9) Save outputs
-# ------------------------------------------------------------
-saveRDS(idol_cg, file.path(OUT_PROC_DIR, "idol_cpgs_shared_cg_12.rds"))
-saveRDS(idol_epicv2, file.path(OUT_PROC_DIR, "idol_cpgs_epicv2_12.rds"))
-saveRDS(centroids_epicv2, file.path(OUT_PROC_DIR, "ref_beta_epicv2_centroids_12.rds"))
-saveRDS(idol_res, file.path(OUT_PROC_DIR, "idol_model_shared_12.rds"))
-write.csv(idol_res, file = file.path(OUT_PROC_DIR, "idol_model_shared_12.csv"))
-
-rm(ref_beta_shared, candFinder, trainingCovariates, idol_res)
-gc()
-
-message("IDOL training completed successfully.")
+rm(rmse_results, idol_results_list)
